@@ -1,0 +1,17 @@
+journals:
+  # IEEE Transactions on Software Engineering
+  - tse
+  # ACM Transactions on Software Engineering and Methodology
+  - tosem
+
+conferences:
+  # International Conference on Software Engineering
+  - icse
+  # Foundations of Software Engineering
+  - sigsoft
+  # Automated Software Engineering (ASE / KBSE)
+  - kbse
+
+year:
+  lower: 2005
+  upper: 2100
