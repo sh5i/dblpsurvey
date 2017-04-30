@@ -10,7 +10,6 @@ ARGV.options do |q|
 end
 
 config = YAML.load_file($conf)
-confs_key =
 
 # year-range
 lower = config['year']['lower'] rescue 1900
