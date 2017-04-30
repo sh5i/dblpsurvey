@@ -1,3 +1,5 @@
+all: result.txt
+
 dblp.dtd:
 	curl http://dblp.uni-trier.de/xml/dblp.dtd -o $@
 dblp.xml.gz:
