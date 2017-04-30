@@ -2,7 +2,6 @@
 
 def extract_articles(io)
   begin
-    require 'hoge'
     require 'nokogiri'
     return extract_articles_via_nokogiri(io)
   rescue LoadError => e
