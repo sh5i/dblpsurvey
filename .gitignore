@@ -1,6 +1,5 @@
 config.yaml
 dblp.dtd
 dblp.xml.gz
-filtered.xml
-noent.xml
+dblp_filtered.xml.gz
 result.txt

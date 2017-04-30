@@ -3,11 +3,11 @@ dblp.dtd:
 dblp.xml.gz:
 	curl http://dblp.uni-trier.de/xml/dblp.xml.gz -o $@
 
-filtered.xml: dblp.xml.gz venues.yaml
-	gunzip -c dblp.xml.gz | ruby dblp_filter.rb > $@
+dblp_filtered.xml.gz: dblp.xml.gz dblp.dtd config.yaml
+	gunzip -c dblp.xml.gz | \
+	    ruby dblp_filter.rb --config=config.yaml | \
+	    xmllint --noent --loaddtd - | \
+	    gzip -c > $@
 
-noent.xml: filtered.xml dblp.dtd
-	xmllint --noent --loaddtd filtered.xml --output $@
-
-result.txt: noent.xml
-	ruby dblp_text.rb $< > $@
+result.txt: dblp_filtered.xml.gz
+	gunzip -c $< | ruby dblp_text.rb > $@
