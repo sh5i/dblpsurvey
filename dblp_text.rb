@@ -22,6 +22,7 @@ def extract_articles_via_nokogiri(io)
       :title => a.xpath('title').first.text.sub(/\.$/, ''),
       :reference => reference,
       :year => a.xpath('year').first.text.to_i,
+      :ee => a.xpath('ee').map {|e| e.text },
     }
   end
   result
@@ -40,6 +41,7 @@ def extract_articles_via_rexml(io)
                   .map {|t| t.value }.join('').sub(/\.$/, ''),
       :reference => reference,
       :year => a.elements['year'].text.to_i,
+      :ee => a.get_elements('ee').map {|e| e.text },
     }
   end
   result
@@ -48,5 +50,6 @@ end
 articles = extract_articles(ARGF)
 articles.sort_by! {|a| [a[:year], a[:reference]] }
 articles.each do |a|
-  puts "[#{a[:key]}] #{a[:authors].join(', ')}: #{a[:title]}, #{a[:reference]}, #{a[:year]}."
+  doi = a[:ee].find {|e| /doi\.org/ =~ e } || a[:ee][0] || ''
+  puts "[#{a[:key]}] #{a[:authors].join(', ')}: #{a[:title]}, #{a[:reference]}, #{a[:year]}. #{doi}".strip
 end
