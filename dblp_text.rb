@@ -51,5 +51,5 @@ articles = extract_articles(ARGF)
 articles.sort_by! {|a| [a[:year], a[:reference]] }
 articles.each do |a|
   doi = a[:ee].find {|e| /doi\.org/ =~ e } || a[:ee][0] || ''
-  puts "[#{a[:key]}] #{a[:authors].join(', ')}: #{a[:title]}, #{a[:reference]}, #{a[:year]}. #{doi}".strip
+  puts "(#{a[:key]}) #{a[:authors].join(', ')}: #{a[:title]}, #{a[:reference]}, #{a[:year]}. #{doi}".strip
 end
