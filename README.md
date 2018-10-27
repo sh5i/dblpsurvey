@@ -14,6 +14,14 @@ Then, the extracted XML will be converted to a simple text, each line represents
 a DBLP entry (`<article>` or `<inproceedings>`).
 Such text file is suitable for the grep-based search.
 
+If you are using an environment that `pbcopy` and `peco` are available, you can enjoy your survey using `survey`.
+```
+$ ln -s path/to/dblpfilter/survey ~/bin/
+$ survey queries
+```
+Then, the selected lines using `peco` are in your clipboard.
+
+
 # Example of config.yaml
 ```
 journals:

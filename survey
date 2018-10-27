@@ -1,0 +1,7 @@
+#!/bin/sh
+
+cat $(dirname $(realpath $0))/result.txt \
+    | peco --query="$*" \
+    | perl -pe 's/^\S+ //' \
+    | tee /dev/tty \
+    | pbcopy
