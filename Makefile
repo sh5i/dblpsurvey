@@ -1,13 +1,13 @@
 all: result.txt
 
 dblp.dtd:
-	curl http://dblp.uni-trier.de/xml/dblp.dtd -o $@
+	curl https://dblp.uni-trier.de/xml/dblp.dtd -o $@
 dblp.xml.gz:
-	curl http://dblp.uni-trier.de/xml/dblp.xml.gz -o $@
+	curl https://dblp.uni-trier.de/xml/dblp.xml.gz -o $@
 
 update:
 	-rm dblp.xml.gz
-	curl http://dblp.uni-trier.de/xml/dblp.xml.gz -o dblp.xml.gz
+	curl https://dblp.uni-trier.de/xml/dblp.xml.gz -o dblp.xml.gz
 
 dblp_filtered.xml.gz: dblp.xml.gz dblp.dtd config.yaml
 	gunzip -c dblp.xml.gz | \
