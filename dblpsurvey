@@ -15,7 +15,7 @@ shift $((OPTIND - 1))
 if type peco >/dev/null 2>&1; then
   PECO='peco --query="$*"'
 elif type fzf >/dev/null 2>&1 ; then
-  PECO='fzf --query="$*"'
+  PECO='fzf --multi --query="$*"'
 else
   PECO='grep -i "$*"'
 fi
