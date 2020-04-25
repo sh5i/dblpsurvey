@@ -1,19 +1,19 @@
-all: result.txt
+all: dblp.txt
 
 dblp.dtd:
-	curl https://dblp.uni-trier.de/xml/dblp.dtd -o $@
+	curl https://dblp.org/xml/dblp.dtd -o $@
 dblp.xml.gz:
-	curl https://dblp.uni-trier.de/xml/dblp.xml.gz -o $@
+	curl https://dblp.org/xml/dblp.xml.gz -o $@
 
 update:
 	-rm dblp.xml.gz
-	curl https://dblp.uni-trier.de/xml/dblp.xml.gz -o dblp.xml.gz
+	curl https://dblp.org/xml/dblp.xml.gz -o dblp.xml.gz
 
 dblp_filtered.xml.gz: dblp.xml.gz dblp.dtd config.yaml
 	gunzip -c dblp.xml.gz | \
-	    ruby dblp_filter.rb --config=config.yaml | \
-	    xmllint --noent --loaddtd - | \
-	    gzip -c > $@
+	  ruby dblp_filter.rb --config=config.yaml | \
+	  xmllint --noent --loaddtd - | \
+	  gzip -c > $@
 
-result.txt: dblp_filtered.xml.gz
+dblp.txt: dblp_filtered.xml.gz
 	gunzip -c $< | ruby dblp_text.rb > $@

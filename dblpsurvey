@@ -1,6 +1,5 @@
 #!/bin/sh
-
-cat $(dirname $(realpath $0))/result.txt \
+cat $(dirname $(realpath $0))/dblp.txt \
     | peco --query="$*" \
     | perl -pe 's/^\S+ //' \
     | tee /dev/tty \

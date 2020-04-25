@@ -2,4 +2,4 @@ config.yaml
 dblp.dtd
 dblp.xml.gz
 dblp_filtered.xml.gz
-result.txt
+dblp.txt
