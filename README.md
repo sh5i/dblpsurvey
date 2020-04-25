@@ -1,28 +1,39 @@
 # dblpsurvey
-A quick & fast reference survey tool with a line-based single text file generated from dblp XML database
+A quick & fast survey tool with a grep-friendly text file generated from [dblp](https://dblp.org/) database
 
-# How to use
+## Usage
 ```
+$ dblpsurvey [opts] [keyword...]
+```
+Options:
+- `-k`: Remove DBLP keys from the output
+- `-d`: Remove DOI URLs from the output
+- `keyword`: Used as an initial keywords when specified
+
+When running `dblpsurvey`, you can select your favorite lines if you have installed incremental search tools such as `peco`.
+The results are pasted to the clipboard with `pbcopy`.
+
+## Prerequisites
+- Basic commands: `make`, `curl`, `gzip`, `gunzip`, `realpath`
+- For the main scripts: `ruby`, `perl`
+- For expanding entities: `xmllint`
+- For search: `peco`, `fzf`, or `grep`
+- For pasting clipboard: `pbcopy`, `xsel`, or `putclip` (optional)
+
+## Installation
+```
+$ git clone https://github.com/sh5i/dblpsurvey.git
+$ cd dblpsurvey
 $ cp config.yaml.sample config.yaml
-# Edit config.yaml as you like
+# (Edit config.yaml as you like)
 $ make
-$ grep 'your favorite keyword' result.txt
+$ sudo ln -s $(realpath ./dblpsurvey) /usr/local/bin/
 ```
-It first downloads the DBLP XML database file from http://dblp.uni-trier.de/xml/
-and generates a smaller XML based on the preference specified by `config.yaml`.
-Then, the extracted XML will be converted to a simple text, each line represents
-a DBLP entry (`<article>` or `<inproceedings>`).
-Such text file is suitable for the grep-based search.
+The `make` first downloads the DBLP XML database file from https://dblp.org/ and generates a smaller XML based on the preference specified by `config.yaml`.
+Then, the extracted XML will be converted to a simple text, each line represents a DBLP entry (`<article>` or `<inproceedings>`).
+Such a text file is suitable for the grep-based search.
 
-If you are using an environment that `pbcopy` and `peco` are available, you can enjoy your survey using `survey`.
-```
-$ ln -s path/to/dblpfilter/survey ~/bin/
-$ survey queries
-```
-Then, the selected lines using `peco` are in your clipboard.
-
-
-# Example of config.yaml
+## Example of config.yaml
 ```
 journals:
   # Enumerate your favorite journals in the DBLP world.
