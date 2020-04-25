@@ -1,5 +1,25 @@
 #!/bin/bash
-cat $(dirname $(realpath $0))/dblp.txt \
-    | peco --query="$*" \
-    | perl -pe 's/^\S+ //' \
-    | tee >(pbcopy)
+
+# peco > fzf > grep
+if type peco >/dev/null 2>&1; then
+  PECO='peco --query="$*"'
+elif type fzf >/dev/null 2>&1 ; then
+  PECO='fzf --query="$*"'
+else
+  PECO='grep -i "$*"'
+fi
+
+# pbcopy > xsel > putclip
+if type pbcopy >/dev/null 2>&1; then
+  PBCOPY=pbcopy
+elif type xsel >/dev/null 2>&1 ; then
+  PBCOPY='xsel --input --clipboard'
+elif type putclip >/dev/null 2>&1 ; then
+  PBCOPY=putclip
+else
+  PBCOPY=true
+fi
+
+eval $PECO < $(dirname $(realpath $0))/dblp.txt \
+  | perl -pe 's/^\S+ //' \
+  | tee >(eval $PBCOPY)
