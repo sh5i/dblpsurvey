@@ -27,7 +27,7 @@ $ cd dblpsurvey
 $ cp config.yaml.sample config.yaml
 # (Edit config.yaml as you like)
 $ make
-$ sudo ln -s $(realpath ./dblpsurvey) /usr/local/bin/
+$ sudo make install   # this just does: ln -s $(realpath ./dblpsurvey) /usr/local/bin/
 ```
 The `make` first downloads the DBLP XML database file from https://dblp.org/ and generates a smaller XML based on the preference specified by `config.yaml`.
 Then, the extracted XML will be converted to a simple text, each line represents a DBLP entry (`<article>` or `<inproceedings>`).
