@@ -1,5 +1,16 @@
 #!/bin/bash
 
+KEY_FILTER=cat
+DOI_FILTER=cat
+while getopts kd OPT; do
+  case $OPT in
+    k) KEY_FILTER='perl -pe "s/^\S+ //"' ;;
+    d) DOI_FILTER='perl -pe "s/ http\S+$//"' ;;
+    *) exit 1 ;;
+  esac
+done
+shift $((OPTIND - 1))
+
 # peco > fzf > grep
 if type peco >/dev/null 2>&1; then
   PECO='peco --query="$*"'
@@ -21,5 +32,6 @@ else
 fi
 
 eval $PECO < $(dirname $(realpath $0))/dblp.txt \
-  | perl -pe 's/^\S+ //' \
+  | eval $KEY_FILTER \
+  | eval $DOI_FILTER \
   | tee >(eval $PBCOPY)
