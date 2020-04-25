@@ -31,7 +31,8 @@ else
   PBCOPY=true
 fi
 
-eval $PECO < $(dirname $(realpath $0))/dblp.txt \
+bunzip -c $(dirname $(realpath $0))/dblp.txt.gz \
+  | eval $PECO \
   | eval $KEY_FILTER \
   | eval $DOI_FILTER \
   | tee >(eval $PBCOPY)

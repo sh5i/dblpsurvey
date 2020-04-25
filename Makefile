@@ -1,4 +1,4 @@
-all: dblp.txt
+all: dblp.txt.gz
 
 dblp.dtd:
 	curl https://dblp.org/xml/dblp.dtd -o $@
@@ -15,5 +15,5 @@ dblp_filtered.xml.gz: dblp.xml.gz dblp.dtd config.yaml
 	  xmllint --noent --loaddtd - | \
 	  gzip -c > $@
 
-dblp.txt: dblp_filtered.xml.gz
-	gunzip -c $< | ruby dblp_text.rb > $@
+dblp.txt.gz: dblp_filtered.xml.gz
+	gunzip -c $< | ruby dblp_text.rb | gzip -c > $@
