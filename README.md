@@ -1,5 +1,5 @@
-# dblpfilter
-Generates a line-based single text file from dblp XML database
+# dblpsurvey
+A quick & fast reference survey tool with a line-based single text file generated from dblp XML database
 
 # How to use
 ```
