@@ -3,22 +3,23 @@ A quick & fast survey tool with a grep-friendly text file generated from [dblp](
 
 ## Usage
 ```
-$ dblpsurvey [opts] [keyword...]
+$ dblpsurvey [-k] [-d] [keyword...]
 ```
 Options:
 - `-k`: Remove DBLP keys from the output
 - `-d`: Remove DOI URLs from the output
-- `keyword`: Used as an initial keywords when specified
+- `keyword`: Used as initial keywords when specified
 
 When running `dblpsurvey`, you can select your favorite lines if you have installed incremental search tools such as `peco`.
 The results are pasted to the clipboard with `pbcopy`.
 
 ## Prerequisites
-- Basic commands: `make`, `curl`, `gzip`, `gunzip`, `realpath`
-- For the main scripts: `ruby`, `perl`
-- For expanding entities: `xmllint`
-- For search: `peco`, `fzf`, or `grep`
-- For pasting clipboard: `pbcopy`, `xsel`, or `putclip` (optional)
+- Basic commands: `bash`, `curl`, `gzip`, `gunzip`, `realpath`, `sed`, and `make`
+- for the main scripts: [`ruby`](https://www.ruby-lang.org/)
+   - (optional) for a fast XML processing: [nokogiri](https://nokogiri.org/)
+- for expanding XML entities: `xmllint` in [libxml2](http://xmlsoft.org/)
+- for search: [`peco`](https://github.com/peco/peco), [`fzf`](https://github.com/junegunn/fzf), or `grep`
+- (optional) for pasting to the clipboard: `pbcopy`, `xsel`, or `putclip`
 
 ## Installation
 ```
