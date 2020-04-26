@@ -31,7 +31,7 @@ else
   PBCOPY=true
 fi
 
-bunzip -c $(dirname $(realpath $0))/dblp.txt.gz \
+gunzip -c $(dirname $(realpath $0))/dblp.txt.gz \
   | eval $PECO \
   | eval $KEY_FILTER \
   | eval $DOI_FILTER \
