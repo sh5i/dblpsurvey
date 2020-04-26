@@ -4,8 +4,8 @@ KEY_FILTER=cat
 DOI_FILTER=cat
 while getopts kd OPT; do
   case $OPT in
-    k) KEY_FILTER='perl -pe "s/^\S+ //"' ;;
-    d) DOI_FILTER='perl -pe "s/ http\S+$//"' ;;
+    k) KEY_FILTER='sed "s/^[^ ]+ //"' ;;
+    d) DOI_FILTER='sed "s/ http[^ ]+\$//"' ;;
     *) exit 1 ;;
   esac
 done
