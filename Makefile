@@ -19,4 +19,6 @@ dblp_filtered.xml.gz: dblp.xml.gz dblp.dtd config.yaml
 	  | gzip -c > $@
 
 dblp.txt.gz: dblp_filtered.xml.gz
-	gunzip -c $< | ruby dblp_text.rb | gzip -c > $@
+	gunzip -c $< \
+	  | ruby dblp_text.rb --color \
+	  | gzip -c > $@

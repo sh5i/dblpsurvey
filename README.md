@@ -14,11 +14,11 @@ When running `dblpsurvey`, you can select your favorite lines if you have instal
 The results are pasted to the clipboard with `pbcopy`.
 
 ## Prerequisites
-- Basic commands: `bash`, `curl`, `gzip`, `gunzip`, `realpath`, `sed`, and `make`
+- Basic commands: `bash`, `curl`, `gzip`, `gunzip`, `realpath`, `perl`, and `make`
 - for the main scripts: [`ruby`](https://www.ruby-lang.org/)
    - (optional) for a fast XML processing: [nokogiri](https://nokogiri.org/)
 - for expanding XML entities: `xmllint` in [libxml2](http://xmlsoft.org/)
-- for search: [`peco`](https://github.com/peco/peco), [`fzf`](https://github.com/junegunn/fzf), or `grep`
+- for search: [`fzf`](https://github.com/junegunn/fzf), [`peco`](https://github.com/peco/peco), or `grep`
 - (optional) for pasting to the clipboard: `pbcopy`, `xsel`, or `putclip`
 
 ## Installation

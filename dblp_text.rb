@@ -1,4 +1,17 @@
 #!/usr/bin/env ruby
+require 'optparse'
+
+KEY     = "\e[32m"      # green
+AUTHORS = ""
+TITLE   = "\e[1m"       # bold
+DOI     = "\e[36m\e[4m" # cyan underscore
+CLEAR   = "\e[0m"
+
+$color = false
+ARGV.options do |q|
+  q.on('--color', 'ANSI coloring') { $color = true }
+  q.parse!
+end
 
 def extract_articles(io)
   begin
@@ -50,6 +63,17 @@ end
 articles = extract_articles(ARGF)
 articles.sort_by! {|a| [a[:year], a[:reference]] }
 articles.each do |a|
+  key = "(#{a[:key]})"
+  authors = a[:authors].join(', ')
+  title = a[:title]
+  ref = a[:reference]
+  year = a[:year]
   doi = a[:ee].find {|e| /doi\.org/ =~ e } || a[:ee][0] || ''
-  puts "(#{a[:key]}) #{a[:authors].join(', ')}: #{a[:title]}, #{a[:reference]}, #{a[:year]}. #{doi}".strip
+  if $color
+    key = "#{KEY}#{key}#{CLEAR}"
+    authors = "#{AUTHORS}#{authors}#{CLEAR}"
+    title = "#{TITLE}#{title}#{CLEAR}"
+    doi = "#{DOI}#{doi}#{CLEAR}"
+  end
+  puts %Q[#{key} #{authors}: "#{title}", #{ref}, #{year}. #{doi}]
 end

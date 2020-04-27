@@ -4,18 +4,18 @@ KEY_FILTER=cat
 DOI_FILTER=cat
 while getopts kd OPT; do
   case $OPT in
-    k) KEY_FILTER='sed "s/^[^ ]+ //"' ;;
-    d) DOI_FILTER='sed "s/ http[^ ]+\$//"' ;;
+    k) KEY_FILTER='perl -pe "s/^[^ ]+ //"' ;;
+    d) DOI_FILTER='perl -pe "s/ [^ ]+\n\$/\n/"' ;;
     *) exit 1 ;;
   esac
 done
 shift $((OPTIND - 1))
 
-# peco > fzf > grep
-if type peco >/dev/null 2>&1; then
+# fzf > peco > grep
+if type fzf >/dev/null 2>&1 ; then
+  PECO='fzf --ansi --multi --query="$*"'
+elif type peco >/dev/null 2>&1; then
   PECO='peco --query="$*"'
-elif type fzf >/dev/null 2>&1 ; then
-  PECO='fzf --multi --query="$*"'
 else
   PECO='grep -i "$*"'
 fi
@@ -35,4 +35,4 @@ gunzip -c $(dirname $(realpath $0))/dblp.txt.gz \
   | eval $PECO \
   | eval $KEY_FILTER \
   | eval $DOI_FILTER \
-  | tee >(eval $PBCOPY)
+  | tee >(perl -pe 's/\e\[[;\d]*m//g' | eval $PBCOPY)
