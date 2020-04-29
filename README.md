@@ -1,6 +1,8 @@
 # dblpsurvey
 A quick & fast survey tool with a grep-friendly text file generated from [dblp](https://dblp.org/) database
 
+![](https://i.gyazo.com/3c1e31b89302d81cd1fbdfdf18b3fb89.gif)
+
 ## Usage
 ```
 $ dblpsurvey [-k] [-d] [keyword...]
