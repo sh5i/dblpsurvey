@@ -13,7 +13,7 @@ shift $((OPTIND - 1))
 
 # fzf > peco > grep
 if type fzf >/dev/null 2>&1 ; then
-  PECO='fzf --ansi --multi --query="$*"'
+  PECO='fzf -i --ansi --multi --query="$*"'
 elif type peco >/dev/null 2>&1; then
   PECO='peco --query="$*"'
 else
