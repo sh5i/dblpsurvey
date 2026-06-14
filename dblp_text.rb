@@ -1,5 +1,16 @@
 #!/usr/bin/env ruby
+# Convert the DBLP XML stream to one grep-friendly line per entry.
+#
+# Regex-based extraction: no XML DOM is built, so this is much faster and far
+# lighter than a full-document parse.  The input is assumed to be the output of
+# `xmllint --noent` (the Makefile pipeline), i.e. character/HTML entities are
+# already expanded; only the predefined XML entities (& < > " ') and numeric
+# references remain to unescape.  DBLP's regular, line-oriented formatting is
+# assumed (the same assumption dblp_filter.rb already relies on).
 require 'optparse'
+
+Encoding.default_external = Encoding::UTF_8
+$stdout.set_encoding('UTF-8')
 
 KEY     = "\e[32m"      # green
 AUTHORS = ""
@@ -13,62 +24,63 @@ ARGV.options do |q|
   q.parse!
 end
 
-def extract_articles(io)
-  begin
-    require 'nokogiri'
-    return extract_articles_via_nokogiri(io)
-  rescue LoadError => e
-    warn 'Consider installing nokogiri for more efficient extraction: `gem install nokogiri`'
-    require 'rexml/document'
-    return extract_articles_via_rexml(io)
+ENT = { 'amp' => '&', 'lt' => '<', 'gt' => '>', 'quot' => '"', 'apos' => "'" }
+def unescape(s)
+  s.gsub(/&(#x[0-9A-Fa-f]+|#\d+|[A-Za-z]+);/) do
+    e = $1
+    if    e.start_with?('#x') then [e[2..].to_i(16)].pack('U')
+    elsif e.start_with?('#')  then [e[1..].to_i].pack('U')
+    else  ENT[e] || "&#{e};" end
   end
 end
 
-def extract_articles_via_nokogiri(io)
-  result = []
-  Nokogiri::XML(io).xpath('/*/article | /*/inproceedings').each do |a|
-    reference = %w[journal booktitle series volume number pages]
-      .map {|k| a.xpath(k).first }.compact.map {|e| e.text }.join(', ')
-    result << {
-      :key => a.attribute('key').to_s,
-      :authors => a.xpath('author').map {|e| e.text },
-      :title => a.xpath('title').first.text.sub(/\.$/, ''),
-      :reference => reference,
-      :year => a.xpath('year').first.text.to_i,
-      :ee => a.xpath('ee').map {|e| e.text },
-    }
-  end
-  result
+# Precompiled per-field matchers (interpolated regexps must not be rebuilt in the loop).
+FIELD_RE = %w[journal booktitle series volume number pages title]
+             .each_with_object({}) { |t, h| h[t] = %r{<#{t}\b[^>]*>(.*?)</#{t}>}m }
+AUTHOR_RE = %r{<author\b[^>]*>(.*?)</author>}m
+EE_RE     = %r{<ee\b[^>]*>(.*?)</ee>}m
+KEY_RE    = /key="([^"]*)"/
+YEAR_RE   = %r{<year>(\d+)</year>}
+START_RE  = /<(?:article|inproceedings)[\s>]/
+CLOSE_RE  = %r{</(?:article|inproceedings)>}
+
+def text_of(rec, tag)              # first <tag>..</tag>, inner tags stripped, entities unescaped
+  return nil unless rec =~ FIELD_RE[tag]
+  unescape($1.gsub(/<[^>]+>/, ''))
 end
 
-def extract_articles_via_rexml(io)
-  doc = REXML::Document.new(io)
-  result = []
-  REXML::XPath.each(doc, '/*/article | /*/inproceedings') do |a|
-    reference = %w[journal booktitle series volume number pages]
-      .map {|k| a.elements[k] }.compact.map {|e| e.text }.join(', ')
-    result << {
-      :key => a.attributes['key'],
-      :authors => a.get_elements('author').map {|e| e.text },
-      :title => REXML::XPath.match(a.elements['title'], './/text()')
-                  .map {|t| t.value }.join('').sub(/\.$/, ''),
-      :reference => reference,
-      :year => a.elements['year'].text.to_i,
-      :ee => a.get_elements('ee').map {|e| e.text },
-    }
+articles = []
+rec = nil
+ARGF.each_line do |line|
+  if rec.nil?
+    next unless line =~ START_RE
+    rec = line.dup
+  else
+    rec << line
   end
-  result
+  next unless line =~ CLOSE_RE
+
+  reference = %w[journal booktitle series volume number pages]
+                .map { |k| text_of(rec, k) }.compact.join(', ')
+  articles << {
+    :key       => (rec[KEY_RE, 1] || ''),
+    :authors   => rec.scan(AUTHOR_RE).map { |m| unescape(m[0].gsub(/<[^>]+>/, '')) },
+    :title     => (text_of(rec, 'title') || '').sub(/\.$/, ''),
+    :reference => reference,
+    :year      => (rec[YEAR_RE, 1] || '0').to_i,
+    :ee        => rec.scan(EE_RE).map { |m| unescape(m[0]) },
+  }
+  rec = nil
 end
 
-articles = extract_articles(ARGF)
-articles.sort_by! {|a| [a[:year], a[:reference]] }
+articles.sort_by! { |a| [a[:year], a[:reference]] }
 articles.each do |a|
   key = "(#{a[:key]})"
   authors = a[:authors].join(', ')
   title = a[:title]
   ref = a[:reference]
   year = a[:year]
-  doi = a[:ee].find {|e| /doi\.org/ =~ e } || a[:ee][0] || ''
+  doi = a[:ee].find { |e| /doi\.org/ =~ e } || a[:ee][0] || ''
   if $color
     key = "#{KEY}#{key}#{CLEAR}"
     authors = "#{AUTHORS}#{authors}#{CLEAR}"
