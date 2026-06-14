@@ -23,14 +23,17 @@ puts '<dblp>'
 article = nil
 ARGF.each do |line|
   if article
-    if %r[(.*</(?:article|inproceedings)>)] =~ line
-      puts [ *article, $1 ].join('')
-      article = nil
-    else
-      article << line
-    end
     if %r[<year>(\d+)</year>] =~ line
       article = nil unless years.cover?($1.to_i)
+    end
+
+    if article
+      if %r[(.*</(?:article|inproceedings)>)] =~ line
+        puts [ *article, $1 ].join('')
+        article = nil
+      else
+        article << line
+      end
     end
   end
 
