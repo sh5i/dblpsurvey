@@ -1,13 +1,12 @@
 #!/usr/bin/env ruby
-# Convert the DBLP XML stream to one grep-friendly line per entry.
+# Filter the raw DBLP XML stream and emit one grep-friendly line per entry.
 #
-# Regex-based extraction: no XML DOM is built, so this is much faster and far
-# lighter than a full-document parse.  The input is assumed to be the output of
-# `xmllint --noent` (the Makefile pipeline), i.e. character/HTML entities are
-# already expanded; only the predefined XML entities (& < > " ') and numeric
-# references remain to unescape.  DBLP's regular, line-oriented formatting is
-# assumed (the same assumption dblp_filter.rb already relies on).
+# Single pass, regex-based: no XML DOM is built and no external tools are needed.
+# This merges the former dblp_filter.rb (venue/year selection) and dblp_text.rb
+# (entity expansion + extraction) so the raw dump is scanned only once.  DBLP's
+# regular, line-oriented formatting is assumed.
 require 'optparse'
+require 'yaml'
 
 Encoding.default_external = Encoding::UTF_8
 $stdout.set_encoding('UTF-8')
@@ -19,12 +18,20 @@ DOI     = "\e[36m\e[4m" # cyan underscore
 CLEAR   = "\e[0m"
 
 $color = false
+$config = 'config.yaml'
 $dtd = 'dblp.dtd'
 ARGV.options do |q|
   q.on('--color', 'ANSI coloring') { $color = true }
+  q.on('--config=s', 'preference YAML (default: config.yaml)') { |a| $config = a }
   q.on('--dtd=s', 'DTD file for entity definitions (default: dblp.dtd)') { |a| $dtd = a }
   q.parse!
 end
+
+# Preferences: which journals/conferences and which year range survive.
+config = YAML.load_file($config)
+lower = config['year']['lower'] rescue 1900
+upper = config['year']['upper'] rescue 2100
+years = (lower..upper)
 
 # The five predefined XML entities plus the named character entities from the DBLP
 # DTD (e.g. &auml; -> ä), which are all numeric character references there.  Loading
@@ -49,15 +56,21 @@ def unescape(s)
   end
 end
 
-# Precompiled per-field matchers (interpolated regexps must not be rebuilt in the loop).
-FIELD_RE = %w[journal booktitle series volume number pages title]
-             .each_with_object({}) { |t, h| h[t] = %r{<#{t}\b[^>]*>(.*?)</#{t}>}m }
+# Precompiled matchers (interpolated regexps must not be rebuilt in the loop).
+JRX = Regexp.union(config['journals'])
+CRX = Regexp.union(config['conferences'])
+# Start tag of a wanted entry (one of our venues), captured to end of line.
+START_RE  = %r{(<(?:article|inproceedings)\s.*key="(?:journals/#{JRX}/|conf/#{CRX}/).*)}
+# A line up to and including the entry's closing tag.  In DBLP the closing tag of
+# one entry and the opening tag of the next often share a line, so closing and
+# (re)opening are both checked per line.
+CLOSE_RE  = %r{(.*</(?:article|inproceedings)>)}
+YEAR_RE   = %r{<year>(\d+)</year>}
+KEY_RE    = /key="([^"]*)"/
 AUTHOR_RE = %r{<author\b[^>]*>(.*?)</author>}m
 EE_RE     = %r{<ee\b[^>]*>(.*?)</ee>}m
-KEY_RE    = /key="([^"]*)"/
-YEAR_RE   = %r{<year>(\d+)</year>}
-START_RE  = /<(?:article|inproceedings)[\s>]/
-CLOSE_RE  = %r{</(?:article|inproceedings)>}
+FIELD_RE  = %w[journal booktitle series volume number pages title]
+              .each_with_object({}) { |t, h| h[t] = %r{<#{t}\b[^>]*>(.*?)</#{t}>}m }
 
 def text_of(rec, tag)              # first <tag>..</tag>, inner tags stripped, entities unescaped
   return nil unless rec =~ FIELD_RE[tag]
@@ -65,27 +78,30 @@ def text_of(rec, tag)              # first <tag>..</tag>, inner tags stripped, e
 end
 
 articles = []
-rec = nil
+rec = nil   # array of line fragments for the entry currently being accumulated
 ARGF.each_line do |line|
-  if rec.nil?
-    next unless line =~ START_RE
-    rec = line.dup
-  else
-    rec << line
+  if rec
+    if line =~ CLOSE_RE
+      record = [*rec, $1].join('')
+      rec = nil
+      year = record[YEAR_RE, 1]
+      if year.nil? || years.cover?(year.to_i)
+        reference = %w[journal booktitle series volume number pages]
+                      .map { |k| text_of(record, k) }.compact.join(', ')
+        articles << {
+          :key       => (record[KEY_RE, 1] || ''),
+          :authors   => record.scan(AUTHOR_RE).map { |m| unescape(m[0].gsub(/<[^>]+>/, '')) },
+          :title     => (text_of(record, 'title') || '').sub(/\.$/, ''),
+          :reference => reference,
+          :year      => (year || '0').to_i,
+          :ee        => record.scan(EE_RE).map { |m| unescape(m[0]) },
+        }
+      end
+    else
+      rec << line
+    end
   end
-  next unless line =~ CLOSE_RE
-
-  reference = %w[journal booktitle series volume number pages]
-                .map { |k| text_of(rec, k) }.compact.join(', ')
-  articles << {
-    :key       => (rec[KEY_RE, 1] || ''),
-    :authors   => rec.scan(AUTHOR_RE).map { |m| unescape(m[0].gsub(/<[^>]+>/, '')) },
-    :title     => (text_of(rec, 'title') || '').sub(/\.$/, ''),
-    :reference => reference,
-    :year      => (rec[YEAR_RE, 1] || '0').to_i,
-    :ee        => rec.scan(EE_RE).map { |m| unescape(m[0]) },
-  }
-  rec = nil
+  rec = [$1] if rec.nil? && line =~ START_RE
 end
 
 articles.sort_by! { |a| [a[:year], a[:reference]] }
