@@ -19,12 +19,27 @@ DOI     = "\e[36m\e[4m" # cyan underscore
 CLEAR   = "\e[0m"
 
 $color = false
+$dtd = 'dblp.dtd'
 ARGV.options do |q|
   q.on('--color', 'ANSI coloring') { $color = true }
+  q.on('--dtd=s', 'DTD file for entity definitions (default: dblp.dtd)') { |a| $dtd = a }
   q.parse!
 end
 
+# The five predefined XML entities plus the named character entities from the DBLP
+# DTD (e.g. &auml; -> ä), which are all numeric character references there.  Loading
+# them here lets us expand entities ourselves, replacing the `xmllint --noent` stage.
 ENT = { 'amp' => '&', 'lt' => '<', 'gt' => '>', 'quot' => '"', 'apos' => "'" }
+if File.exist?($dtd)
+  File.foreach($dtd) do |l|
+    next unless l =~ /<!ENTITY\s+(\w+)\s+"&#(x?[0-9A-Fa-f]+);"/
+    name, code = $1, $2
+    ENT[name] = [code.start_with?('x') ? code[1..].to_i(16) : code.to_i].pack('U')
+  end
+else
+  warn "dblp_text.rb: DTD '#{$dtd}' not found; named entities (e.g. &auml;) will be left unexpanded"
+end
+
 def unescape(s)
   s.gsub(/&(#x[0-9A-Fa-f]+|#\d+|[A-Za-z]+);/) do
     e = $1
