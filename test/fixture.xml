@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<!DOCTYPE dblp SYSTEM "test.dtd">
+<dblp>
+<article mdate="2020-01-01" key="journals/tse/MuellerA14">
+<author>Heiko M&auml;ller</author>
+<author>A. &Aacute;lvarez</author>
+<title>On H<sub>2</sub>O &amp; <i>refactoring</i>.</title>
+<journal>IEEE Trans. Software Eng.</journal>
+<volume>40</volume>
+<number>3</number>
+<pages>1-10</pages>
+<year>2014</year>
+<ee>https://example.org/x</ee>
+<ee>https://doi.org/10.1/late</ee>
+</article><inproceedings mdate="2019-01-01" key="conf/icse/SmithB01"><author>Jane Smith</author>
+<title>Hello world.</title>
+<booktitle>ICSE</booktitle>
+<pages>5-9</pages>
+<year>2001</year>
+<ee>https://example.org/only</ee>
+</inproceedings>
+<article mdate="2017-01-01" key="journals/tse/OldOne90">
+<title>Too old to survive</title>
+<journal>IEEE Trans. Software Eng.</journal>
+<year>1990</year>
+</article>
+<article mdate="2016-01-01" key="journals/xx/Unwanted10">
+<title>Wrong venue</title>
+<year>2010</year>
+</article>
+<article mdate="2015-01-01" key="journals/tse/Koehler05">
+<author>P. K&ouml;hler</author>
+<title>Query with ampersand</title>
+<journal>IEEE Trans. Software Eng.</journal>
+<year>2005</year>
+<ee>https://example.org/q?a=1&amp;b=2</ee>
+</article>
+</dblp>

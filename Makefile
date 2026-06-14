@@ -1,4 +1,4 @@
-.PHONY: all install update clean distclean
+.PHONY: all install update clean distclean test
 .DELETE_ON_ERROR:
 
 # Extractor: ruby (readable reference, easy to hack on) or go (fast, "compiled").
@@ -35,6 +35,20 @@ distclean: clean
 
 dblp2text: dblp_text.go go.mod
 	go build -o $@ .
+
+# Verify the Ruby and Go extractors produce identical output (multiset, since the
+# tie-order of equal-key entries differs between Ruby's and Go's sort).  This is the
+# contract that lets dblp_text.rb stay the editable reference and Go a fast twin.
+test: dblp2text
+	@ruby dblp_text.rb --color --config=test/config.yaml --dtd=test/test.dtd < test/fixture.xml | sort > /tmp/dblp_test.ruby
+	@./dblp2text       --color --config=test/config.yaml --dtd=test/test.dtd < test/fixture.xml | sort > /tmp/dblp_test.go
+	@if cmp -s /tmp/dblp_test.ruby /tmp/dblp_test.go; then \
+	  echo "PASS: ruby == go ($$(wc -l < /tmp/dblp_test.ruby | tr -d ' ') entries)"; \
+	else \
+	  echo "FAIL: ruby and go differ:"; diff /tmp/dblp_test.ruby /tmp/dblp_test.go; \
+	  rm -f /tmp/dblp_test.ruby /tmp/dblp_test.go; exit 1; \
+	fi
+	@rm -f /tmp/dblp_test.ruby /tmp/dblp_test.go
 
 dblp.txt.gz: dblp.xml.gz dblp.dtd config.yaml $(EXTRACT_DEP)
 	gunzip -c dblp.xml.gz \
