@@ -7,6 +7,7 @@
 # regular, line-oriented formatting is assumed.
 require 'optparse'
 require 'yaml'
+require 'set'
 
 Encoding.default_external = Encoding::UTF_8
 $stdout.set_encoding('UTF-8')
@@ -48,6 +49,7 @@ else
 end
 
 def unescape(s)
+  return s unless s.include?('&')          # most fields carry no entity
   s.gsub(/&(#x[0-9A-Fa-f]+|#\d+|[A-Za-z]+);/) do
     e = $1
     if    e.start_with?('#x') then [e[2..].to_i(16)].pack('U')
@@ -56,11 +58,16 @@ def unescape(s)
   end
 end
 
+def strip_tags(s)
+  s.include?('<') ? s.gsub(/<[^>]+>/, '') : s   # most fields carry no inner markup
+end
+
 # Precompiled matchers (interpolated regexps must not be rebuilt in the loop).
-JRX = Regexp.union(config['journals'])
-CRX = Regexp.union(config['conferences'])
-# Start tag of a wanted entry (one of our venues), captured to end of line.
-START_RE  = %r{(<(?:article|inproceedings)\s.*key="(?:journals/#{JRX}/|conf/#{CRX}/).*)}
+JOURNALS = config['journals'].to_set
+CONFS    = config['conferences'].to_set
+# Start tag of an article/inproceedings with a key; captures (from-tag, kind, venue).
+# Venue membership is then a hash lookup, not a huge regex alternation.
+START_RE  = %r{(<(?:article|inproceedings)\s.*key="(journals|conf)/([^/"]+)/.*)}
 # A line up to and including the entry's closing tag.  In DBLP the closing tag of
 # one entry and the opening tag of the next often share a line, so closing and
 # (re)opening are both checked per line.
@@ -74,7 +81,7 @@ FIELD_RE  = %w[journal booktitle series volume number pages title]
 
 def text_of(rec, tag)              # first <tag>..</tag>, inner tags stripped, entities unescaped
   return nil unless rec =~ FIELD_RE[tag]
-  unescape($1.gsub(/<[^>]+>/, ''))
+  unescape(strip_tags($1))
 end
 
 articles = []
@@ -90,7 +97,7 @@ ARGF.each_line do |line|
                       .map { |k| text_of(record, k) }.compact.join(', ')
         articles << {
           :key       => (record[KEY_RE, 1] || ''),
-          :authors   => record.scan(AUTHOR_RE).map { |m| unescape(m[0].gsub(/<[^>]+>/, '')) },
+          :authors   => record.scan(AUTHOR_RE).map { |m| unescape(strip_tags(m[0])) },
           :title     => (text_of(record, 'title') || '').sub(/\.$/, ''),
           :reference => reference,
           :year      => (year || '0').to_i,
@@ -101,9 +108,12 @@ ARGF.each_line do |line|
       rec << line
     end
   end
-  # Cheap substring guard before the costly venue regex: only entry start tags
-  # carry a key attribute, so most lines (authors, titles, …) are skipped here.
-  rec = [$1] if rec.nil? && line.include?('key="') && line =~ START_RE
+  # Cheap substring guard before the regex: only entry start tags carry a key
+  # attribute, so most lines (authors, titles, …) are skipped here.  Venue
+  # selection is a hash lookup on the captured venue token.
+  if rec.nil? && line.include?('key="') && line =~ START_RE
+    rec = [$1] if ($2 == 'journals' ? JOURNALS : CONFS).include?($3)
+  end
 end
 
 articles.sort_by! { |a| [a[:year], a[:reference]] }
