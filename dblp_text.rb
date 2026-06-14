@@ -1,10 +1,11 @@
 #!/usr/bin/env ruby
-# Filter the raw DBLP XML stream and emit one grep-friendly line per entry.
+# Filter the raw DBLP XML stream and emit one entry per line.
 #
 # Single pass, regex-based: no XML DOM is built and no external tools are needed.
-# This merges the former dblp_filter.rb (venue/year selection) and dblp_text.rb
-# (entity expansion + extraction) so the raw dump is scanned only once.  DBLP's
-# regular, line-oriented formatting is assumed.
+# Two output formats (--format):
+#   text (default) — one grep-friendly line per entry, for the dblp.txt.gz database.
+#   sql            — INSERT statements for the SQLite database (see schema.sql).
+# DBLP's regular, line-oriented formatting is assumed.
 require 'optparse'
 require 'yaml'
 require 'set'
@@ -19,10 +20,12 @@ DOI     = "\e[36m\e[4m" # cyan underscore
 CLEAR   = "\e[0m"
 
 $color = false
+$format = 'text'
 $config = 'config.yaml'
 $dtd = 'dblp.dtd'
 ARGV.options do |q|
-  q.on('--color', 'ANSI coloring') { $color = true }
+  q.on('--color', 'ANSI coloring (text format)') { $color = true }
+  q.on('--format=s', 'output format: text (default) or sql') { |a| $format = a }
   q.on('--config=s', 'preference YAML (default: config.yaml)') { |a| $config = a }
   q.on('--dtd=s', 'DTD file for entity definitions (default: dblp.dtd)') { |a| $dtd = a }
   q.parse!
@@ -62,6 +65,17 @@ def strip_tags(s)
   s.include?('<') ? s.gsub(/<[^>]+>/, '') : s   # most fields carry no inner markup
 end
 
+# Match the title-normalisation used by the SQLite `title_norm` column: keep ASCII
+# alphanumerics only, lowercased.  Deliberately ASCII-only (no Unicode case folding)
+# so Ruby, Go and the query side normalise identically (see README).
+def norm_title(s)
+  s.gsub(/[^A-Za-z0-9]/, '').downcase
+end
+
+def sql_quote(s)
+  "'" + s.to_s.gsub("'", "''") + "'"
+end
+
 # Precompiled matchers (interpolated regexps must not be rebuilt in the loop).
 JOURNALS = config['journals'].to_set
 CONFS    = config['conferences'].to_set
@@ -74,6 +88,8 @@ START_RE  = %r{(<(?:article|inproceedings)\s.*key="(journals|conf)/([^/"]+)/.*)}
 CLOSE_RE  = %r{(.*</(?:article|inproceedings)>)}
 YEAR_RE   = %r{<year>(\d+)</year>}
 KEY_RE    = /key="([^"]*)"/
+TYPE_RE   = %r{<(article|inproceedings)\b}
+VENUE_RE  = %r{\A(?:journals|conf)/([^/]+)/}
 AUTHOR_RE = %r{<author\b[^>]*>(.*?)</author>}m
 EE_RE     = %r{<ee\b[^>]*>(.*?)</ee>}m
 FIELD_RE  = %w[journal booktitle series volume number pages title]
@@ -84,6 +100,8 @@ def text_of(rec, tag)              # first <tag>..</tag>, inner tags stripped, e
   unescape(strip_tags($1))
 end
 
+REF_FIELDS = %w[journal booktitle series volume number pages]
+
 articles = []
 rec = nil   # array of line fragments for the entry currently being accumulated
 ARGF.each_line do |line|
@@ -93,15 +111,17 @@ ARGF.each_line do |line|
       rec = nil
       year = record[YEAR_RE, 1]
       if year.nil? || years.cover?(year.to_i)
-        reference = %w[journal booktitle series volume number pages]
-                      .map { |k| text_of(record, k) }.compact.join(', ')
+        fields = {}
+        REF_FIELDS.each { |t| fields[t] = text_of(record, t) }
         articles << {
-          :key       => (record[KEY_RE, 1] || ''),
-          :authors   => record.scan(AUTHOR_RE).map { |m| unescape(strip_tags(m[0])) },
-          :title     => (text_of(record, 'title') || '').sub(/\.$/, ''),
-          :reference => reference,
-          :year      => (year || '0').to_i,
-          :ee        => record.scan(EE_RE).map { |m| unescape(m[0]) },
+          :key     => (record[KEY_RE, 1] || ''),
+          :type    => (record[TYPE_RE, 1] || ''),
+          :venue   => ((record[KEY_RE, 1] || '')[VENUE_RE, 1] || ''),
+          :year    => (year || '0').to_i,
+          :authors => record.scan(AUTHOR_RE).map { |m| unescape(strip_tags(m[0])) },
+          :title   => (text_of(record, 'title') || '').sub(/\.$/, ''),
+          :fields  => fields,
+          :ee      => record.scan(EE_RE).map { |m| unescape(m[0]) },
         }
       end
     else
@@ -116,19 +136,52 @@ ARGF.each_line do |line|
   end
 end
 
-articles.sort_by! { |a| [a[:year], a[:reference]] }
-articles.each do |a|
-  key = "(#{a[:key]})"
-  authors = a[:authors].join(', ')
-  title = a[:title]
-  ref = a[:reference]
-  year = a[:year]
-  doi = a[:ee].find { |e| /doi\.org/ =~ e } || a[:ee][0] || ''
-  if $color
-    key = "#{KEY}#{key}#{CLEAR}"
-    authors = "#{AUTHORS}#{authors}#{CLEAR}"
-    title = "#{TITLE}#{title}#{CLEAR}"
-    doi = "#{DOI}#{doi}#{CLEAR}"
+def reference_of(a)
+  REF_FIELDS.map { |t| a[:fields][t] }.compact.join(', ')
+end
+
+def doi_of(a)
+  a[:ee].find { |e| /doi\.org/ =~ e } || a[:ee][0] || ''
+end
+
+if $format == 'sql'
+  puts 'BEGIN;'
+  articles.each do |a|
+    f = a[:fields]
+    cols = [
+      sql_quote(a[:key]),                # key
+      sql_quote(a[:type]),               # type
+      sql_quote(a[:venue]),              # venue
+      a[:year].to_s,                     # year
+      sql_quote(a[:authors].join(', ')), # authors
+      sql_quote(a[:title]),              # title
+      sql_quote(norm_title(a[:title])),  # title_norm
+      sql_quote(f['journal']),           # journal
+      sql_quote(f['booktitle']),         # booktitle
+      sql_quote(f['volume']),            # volume
+      sql_quote(f['number']),            # number
+      sql_quote(f['pages']),             # pages
+      sql_quote(doi_of(a)),              # doi
+      sql_quote(a[:ee].join(' ')),       # ee
+    ]
+    puts "INSERT INTO entries VALUES(#{cols.join(',')});"
   end
-  puts %Q[#{key} #{authors}: "#{title}", #{ref}, #{year}. #{doi}]
+  puts 'COMMIT;'
+else
+  articles.sort_by! { |a| [a[:year], reference_of(a)] }
+  articles.each do |a|
+    key = "(#{a[:key]})"
+    authors = a[:authors].join(', ')
+    title = a[:title]
+    ref = reference_of(a)
+    year = a[:year]
+    doi = doi_of(a)
+    if $color
+      key = "#{KEY}#{key}#{CLEAR}"
+      authors = "#{AUTHORS}#{authors}#{CLEAR}"
+      title = "#{TITLE}#{title}#{CLEAR}"
+      doi = "#{DOI}#{doi}#{CLEAR}"
+    end
+    puts %Q[#{key} #{authors}: "#{title}", #{ref}, #{year}. #{doi}]
+  end
 end

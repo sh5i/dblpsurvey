@@ -1,5 +1,6 @@
 // dblp_text.go — fast Go counterpart of dblp_text.rb (identical I/O: raw DBLP XML
-// on stdin, one text line per entry on stdout, flags --color/--config/--dtd).
+// on stdin, flags --color/--format/--config/--dtd).  --format text (default) emits
+// one line per entry; --format sql emits INSERTs for the SQLite database.
 // A byte-scanning producer finds entry boundaries (no regexp) and a pool of worker
 // goroutines does the per-entry extraction.  Kept in sync with dblp_text.rb; run
 // `make test` to verify the two agree.
@@ -44,9 +45,10 @@ func init() {
 
 // read-only after main() sets them, so safe for concurrent worker use
 var (
-	entMap        map[string]string
+	entMap         map[string]string
 	lowerY, upperY int
-	colorOn       bool
+	colorOn        bool
+	sqlOut         bool
 )
 
 func unescape(s string) string {
@@ -86,10 +88,49 @@ func textOf(rec string, re *regexp.Regexp) (string, bool) {
 	return unescape(stripTags(m[1])), true
 }
 
+func sqlQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+
+// normTitle mirrors dblp_text.rb's title_norm: keep ASCII alphanumerics only,
+// lowercased.  ASCII-only on purpose so Ruby/Go/query side normalise identically.
+func normTitle(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case c >= 'A' && c <= 'Z':
+			b.WriteByte(c + 32)
+		case (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'):
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+func typeOf(record string) string {
+	if strings.HasPrefix(record, "<inproceedings") {
+		return "inproceedings"
+	}
+	return "article"
+}
+
+func venueOf(key string) string {
+	rest := ""
+	if r, ok := strings.CutPrefix(key, "journals/"); ok {
+		rest = r
+	} else if r, ok := strings.CutPrefix(key, "conf/"); ok {
+		rest = r
+	} else {
+		return ""
+	}
+	if i := strings.IndexByte(rest, '/'); i >= 0 {
+		return rest[:i]
+	}
+	return rest
+}
+
 type entry struct {
 	year int
 	ref  string
-	line string
+	out  string
 }
 
 // closeCapture returns the line up to and including the rightmost </article> or
@@ -167,13 +208,6 @@ func extract(record string) (entry, bool) {
 	if v, ok := textOf(record, fieldRe["title"]); ok {
 		title = strings.TrimSuffix(v, ".")
 	}
-	var refs []string
-	for _, t := range refTags {
-		if v, ok := textOf(record, fieldRe[t]); ok {
-			refs = append(refs, v)
-		}
-	}
-	ref := strings.Join(refs, ", ")
 	var ees []string
 	for _, m := range eeRe.FindAllStringSubmatch(record, -1) {
 		ees = append(ees, unescape(m[1]))
@@ -189,15 +223,43 @@ func extract(record string) (entry, bool) {
 		doi = ees[0]
 	}
 	auth := strings.Join(authors, ", ")
+
+	if sqlOut {
+		field := func(t string) string { v, _ := textOf(record, fieldRe[t]); return v }
+		out := "INSERT INTO entries VALUES(" +
+			sqlQuote(key) + "," + // key
+			sqlQuote(typeOf(record)) + "," + // type
+			sqlQuote(venueOf(key)) + "," + // venue
+			strconv.Itoa(year) + "," + // year
+			sqlQuote(auth) + "," + // authors
+			sqlQuote(title) + "," + // title
+			sqlQuote(normTitle(title)) + "," + // title_norm
+			sqlQuote(field("journal")) + "," + // journal
+			sqlQuote(field("booktitle")) + "," + // booktitle
+			sqlQuote(field("volume")) + "," + // volume
+			sqlQuote(field("number")) + "," + // number
+			sqlQuote(field("pages")) + "," + // pages
+			sqlQuote(doi) + "," + // doi
+			sqlQuote(strings.Join(ees, " ")) + ");" // ee
+		return entry{year, "", out}, true
+	}
+
+	var refs []string
+	for _, t := range refTags {
+		if v, ok := textOf(record, fieldRe[t]); ok {
+			refs = append(refs, v)
+		}
+	}
+	ref := strings.Join(refs, ", ")
 	yr := strconv.Itoa(year)
-	var line string
+	var out string
 	if colorOn {
-		line = cKey + "(" + key + ")" + cClear + " " + auth + cClear + ": \"" +
+		out = cKey + "(" + key + ")" + cClear + " " + auth + cClear + ": \"" +
 			cTitle + title + cClear + "\", " + ref + ", " + yr + ". " + cDoi + doi + cClear
 	} else {
-		line = "(" + key + ") " + auth + ": \"" + title + "\", " + ref + ", " + yr + ". " + doi
+		out = "(" + key + ") " + auth + ": \"" + title + "\", " + ref + ", " + yr + ". " + doi
 	}
-	return entry{year, ref, line}, true
+	return entry{year, ref, out}, true
 }
 
 func loadConfig(path string) (journals, confs map[string]bool, lower, upper int) {
@@ -268,7 +330,8 @@ func loadDTD(path string) map[string]string {
 }
 
 func main() {
-	color := flag.Bool("color", false, "ANSI coloring")
+	color := flag.Bool("color", false, "ANSI coloring (text format)")
+	format := flag.String("format", "text", "output format: text or sql")
 	config := flag.String("config", "config.yaml", "preference YAML")
 	dtd := flag.String("dtd", "dblp.dtd", "DTD for entity definitions")
 	flag.Parse()
@@ -277,6 +340,7 @@ func main() {
 	entMap = loadDTD(*dtd)
 	lowerY, upperY = lower, upper
 	colorOn = *color
+	sqlOut = *format == "sql"
 
 	const batchSize = 256
 	records := make(chan []string, 2*runtime.NumCPU())
@@ -338,16 +402,25 @@ func main() {
 	for _, r := range results {
 		entries = append(entries, r...)
 	}
+	w := bufio.NewWriterSize(os.Stdout, 1<<20)
+	defer w.Flush()
+	if sqlOut {
+		w.WriteString("BEGIN;\n")
+		for _, e := range entries {
+			w.WriteString(e.out)
+			w.WriteByte('\n')
+		}
+		w.WriteString("COMMIT;\n")
+		return
+	}
 	sort.SliceStable(entries, func(i, j int) bool {
 		if entries[i].year != entries[j].year {
 			return entries[i].year < entries[j].year
 		}
 		return entries[i].ref < entries[j].ref
 	})
-	w := bufio.NewWriterSize(os.Stdout, 1<<20)
-	defer w.Flush()
 	for _, e := range entries {
-		w.WriteString(e.line)
+		w.WriteString(e.out)
 		w.WriteByte('\n')
 	}
 }
