@@ -1,41 +1,49 @@
 #!/bin/bash
 
-KEY_FILTER=cat
-DOI_FILTER=cat
+KEY_FILTER=(cat)
+DOI_FILTER=(cat)
 while getopts kd OPT; do
   case $OPT in
-    k) KEY_FILTER='perl -pe "s/^[^ ]+ //"' ;;
-    d) DOI_FILTER='perl -pe "s/ [^ ]*\n\$/\n/"' ;;
+    k) KEY_FILTER=(perl -pe 's/^[^ ]+ //') ;;
+    d) DOI_FILTER=(perl -pe 's/ [^ ]*\n$/\n/') ;;
     *) exit 1 ;;
   esac
 done
 shift $((OPTIND - 1))
 
+query="$*"
+
 # fzf > peco > grep
 if type fzf >/dev/null 2>&1 ; then
-  PECO='fzf -i --ansi --multi --no-sort --layout=reverse-list --query="$*"'
+  PICKER=(fzf -i --ansi --multi --no-sort --layout=reverse-list --query="$query")
 elif type peco >/dev/null 2>&1; then
-  PECO='peco  --layout=bottom-up --query="$*"'
+  PICKER=(peco --layout=bottom-up --query="$query")
 else
-  PECO='grep -i "$*"'
+  PICKER=(grep -i -- "$query")
 fi
 
 # pbcopy > xsel > putclip
 if type pbcopy >/dev/null 2>&1; then
-  PBCOPY=pbcopy
+  PBCOPY=(pbcopy)
 elif type xsel >/dev/null 2>&1 ; then
-  PBCOPY='xsel --input --clipboard'
+  PBCOPY=(xsel --input --clipboard)
 elif type putclip >/dev/null 2>&1 ; then
-  PBCOPY=putclip
+  PBCOPY=(putclip)
 else
-  PBCOPY=true
+  PBCOPY=(true)
 fi
 
-selection=$(gunzip -c $(dirname $(realpath $0))/dblp.txt.gz | eval $PECO)
+db="$(dirname "$(realpath "$0")")/dblp.txt.gz"
+if [ ! -f "$db" ]; then
+  echo "dblpsurvey: $db not found; run 'make' first." >&2
+  exit 1
+fi
+
+selection=$(gunzip -c "$db" | "${PICKER[@]}")
 # Don't clobber the clipboard when nothing was selected (e.g. aborted with ESC).
 [ -n "$selection" ] || exit 0
 
 printf '%s\n' "$selection" \
-  | eval $KEY_FILTER \
-  | eval $DOI_FILTER \
-  | tee >(perl -pe 's/\e\[[;\d]*m//g' | eval $PBCOPY)
+  | "${KEY_FILTER[@]}" \
+  | "${DOI_FILTER[@]}" \
+  | tee >(perl -pe 's/\e\[[;\d]*m//g' | "${PBCOPY[@]}")
