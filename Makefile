@@ -1,6 +1,17 @@
 .PHONY: all install update clean distclean
 .DELETE_ON_ERROR:
 
+# Extractor: ruby (readable reference, easy to hack on) or go (fast, "compiled").
+# Both share the same I/O: stdin XML -> stdout text, flags --color/--config/--dtd.
+EXTRACTOR ?= ruby
+ifeq ($(EXTRACTOR),go)
+EXTRACT     = ./dblp2text
+EXTRACT_DEP = dblp2text
+else
+EXTRACT     = ruby dblp_text.rb
+EXTRACT_DEP = dblp_text.rb
+endif
+
 all: dblp.txt.gz
 
 install:
@@ -22,10 +33,10 @@ clean:
 distclean: clean
 	rm -f dblp.xml.gz dblp.xml.gz.0 dblp.dtd
 
-dblp2text: main.go go.mod
+dblp2text: dblp_text.go go.mod
 	go build -o $@ .
 
-dblp.txt.gz: dblp.xml.gz dblp.dtd config.yaml dblp2text
+dblp.txt.gz: dblp.xml.gz dblp.dtd config.yaml $(EXTRACT_DEP)
 	gunzip -c dblp.xml.gz \
-	  | ./dblp2text --color --config=config.yaml --dtd=dblp.dtd \
+	  | $(EXTRACT) --color --config=config.yaml --dtd=dblp.dtd \
 	  | gzip -c > $@
