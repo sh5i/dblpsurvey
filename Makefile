@@ -22,13 +22,9 @@ clean:
 distclean: clean
 	rm -f dblp.xml.gz dblp.xml.gz.0 dblp.dtd
 
-dblp_filtered.xml.gz: dblp.xml.gz dblp.dtd config.yaml
+dblp.txt.gz: dblp.xml.gz dblp.dtd config.yaml dblp_filter.rb dblp_text.rb
 	gunzip -c dblp.xml.gz \
 	  | ruby dblp_filter.rb --config=config.yaml \
 	  | xmllint --noent --loaddtd - \
-	  | gzip -c > $@
-
-dblp.txt.gz: dblp_filtered.xml.gz
-	gunzip -c $< \
 	  | ruby dblp_text.rb --color \
 	  | gzip -c > $@
