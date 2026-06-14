@@ -1,9 +1,9 @@
 .PHONY: all install update clean distclean test
 .DELETE_ON_ERROR:
 
-# Extractor: ruby (readable reference, easy to hack on) or go (fast, "compiled").
+# Extractor: go (fast, default) or ruby (readable reference, easy to hack on).
 # Both share the same I/O: stdin XML -> stdout text, flags --color/--config/--dtd.
-EXTRACTOR ?= ruby
+EXTRACTOR ?= go
 ifeq ($(EXTRACTOR),go)
 EXTRACT     = ./dblp2text
 EXTRACT_DEP = dblp2text

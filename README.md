@@ -17,9 +17,9 @@ The results are pasted to the clipboard with `pbcopy`.
 
 ## Prerequisites
 - Basic commands: `bash`, `curl`, `gzip`, `gunzip`, `realpath`, `perl`, and `make`
-- for the main scripts: [`ruby`](https://www.ruby-lang.org/)
-   - (optional) for a fast XML processing: [nokogiri](https://nokogiri.org/)
-- for expanding XML entities: `xmllint` in [libxml2](http://xmlsoft.org/)
+- for building the text database, either:
+   - [Go](https://go.dev/) — the default, fast extractor (`make`), or
+   - [`ruby`](https://www.ruby-lang.org/) — the readable reference extractor (`make EXTRACTOR=ruby`)
 - for search: [`fzf`](https://github.com/junegunn/fzf), [`peco`](https://github.com/peco/peco), or `grep`
 - (optional) for pasting to the clipboard: `pbcopy`, `xsel`, or `putclip`
 
@@ -32,9 +32,12 @@ $ cp config.yaml.sample config.yaml
 $ make
 $ sudo make install   # this just does: ln -s $(realpath ./dblpsurvey) /usr/local/bin/
 ```
-The `make` first downloads the DBLP XML database file from https://dblp.org/ and generates a smaller XML based on the preference specified by `config.yaml`.
-Then, the extracted XML will be converted to a simple text, each line represents a DBLP entry (`<article>` or `<inproceedings>`).
+The `make` first downloads the DBLP XML database file from https://dblp.org/, then filters it by the preference in `config.yaml` and converts the selected entries to a simple text in a single pass, each line representing a DBLP entry (`<article>` or `<inproceedings>`).
 Such a text file is suitable for the grep-based search.
+
+By default `make` builds and uses a fast Go extractor (`dblp_text.go`).
+To avoid installing Go, use the equivalent Ruby extractor instead: `make EXTRACTOR=ruby` (`dblp_text.rb`).
+`make test` checks that the two extractors produce identical output.
 
 ## Example of config.yaml
 ```
