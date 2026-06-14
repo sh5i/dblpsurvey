@@ -101,7 +101,9 @@ ARGF.each_line do |line|
       rec << line
     end
   end
-  rec = [$1] if rec.nil? && line =~ START_RE
+  # Cheap substring guard before the costly venue regex: only entry start tags
+  # carry a key attribute, so most lines (authors, titles, …) are skipped here.
+  rec = [$1] if rec.nil? && line.include?('key="') && line =~ START_RE
 end
 
 articles.sort_by! { |a| [a[:year], a[:reference]] }
