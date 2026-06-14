@@ -4,6 +4,7 @@ dblp.xml.gz
 dblp.xml.gz.0
 dblp_filtered.xml.gz
 dblp.txt.gz
+dblp.db
 dblp2text
 
 .DS_Store
