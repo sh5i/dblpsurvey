@@ -13,9 +13,9 @@ shift $((OPTIND - 1))
 
 # fzf > peco > grep
 if type fzf >/dev/null 2>&1 ; then
-  PECO='fzf -i --ansi --multi --query="$*"'
+  PECO='fzf -i --ansi --multi --no-sort --layout=reverse-list --query="$*"'
 elif type peco >/dev/null 2>&1; then
-  PECO='peco --query="$*"'
+  PECO='peco  --layout=bottom-up --query="$*"'
 else
   PECO='grep -i "$*"'
 fi
