@@ -31,8 +31,11 @@ else
   PBCOPY=true
 fi
 
-gunzip -c $(dirname $(realpath $0))/dblp.txt.gz \
-  | eval $PECO \
+selection=$(gunzip -c $(dirname $(realpath $0))/dblp.txt.gz | eval $PECO)
+# Don't clobber the clipboard when nothing was selected (e.g. aborted with ESC).
+[ -n "$selection" ] || exit 0
+
+printf '%s\n' "$selection" \
   | eval $KEY_FILTER \
   | eval $DOI_FILTER \
   | tee >(perl -pe 's/\e\[[;\d]*m//g' | eval $PBCOPY)
