@@ -36,8 +36,8 @@ ARGF.each do |line|
 
   unless article
     if %r[(<(?:article|inproceedings)\s.*key="(?:
-            journals/#{Regexp.union(config['journals'])} |
-            conf/#{Regexp.union(config['conferences'])} ).*)]ox =~ line
+            journals/#{Regexp.union(config['journals'])}/ |
+            conf/#{Regexp.union(config['conferences'])}/ ).*)]ox =~ line
       article = [ $1 ]
     end
   end
