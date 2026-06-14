@@ -9,8 +9,9 @@ dblp.xml.gz:
 	curl https://dblp.org/xml/dblp.xml.gz -o $@
 
 update:
-	-rm dblp.xml.gz
+	-mv dblp.xml.gz dblp.xml.gz.0
 	$(MAKE)
+	-rm dblp.xml.gz.0
 
 dblp_filtered.xml.gz: dblp.xml.gz dblp.dtd config.yaml
 	gunzip -c dblp.xml.gz \

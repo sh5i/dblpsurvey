@@ -1,5 +1,12 @@
 config.yaml
 dblp.dtd
 dblp.xml.gz
+dblp.xml.gz.0
 dblp_filtered.xml.gz
 dblp.txt.gz
+
+.DS_Store
+._*
+~$*
+*~
+
