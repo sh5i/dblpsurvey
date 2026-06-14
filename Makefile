@@ -17,12 +17,15 @@ update:
 	-rm dblp.xml.gz.0
 
 clean:
-	rm -f dblp_filtered.xml.gz dblp.txt.gz
+	rm -f dblp_filtered.xml.gz dblp.txt.gz dblp2text
 
 distclean: clean
 	rm -f dblp.xml.gz dblp.xml.gz.0 dblp.dtd
 
-dblp.txt.gz: dblp.xml.gz dblp.dtd config.yaml dblp_text.rb
+dblp2text: main.go go.mod
+	go build -o $@ .
+
+dblp.txt.gz: dblp.xml.gz dblp.dtd config.yaml dblp2text
 	gunzip -c dblp.xml.gz \
-	  | ruby dblp_text.rb --color --config=config.yaml --dtd=dblp.dtd \
+	  | ./dblp2text --color --config=config.yaml --dtd=dblp.dtd \
 	  | gzip -c > $@
