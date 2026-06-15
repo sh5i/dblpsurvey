@@ -54,8 +54,11 @@ test: dblp2text
 	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT key FROM entries WHERE title_norm='onh2orefactoring'")" = journals/tse/MuellerA14 || { echo "FAIL (db): title_norm"; exit 1; }
 	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT key FROM fts WHERE fts MATCH 'refactoring'")" = journals/tse/MuellerA14 || { echo "FAIL (db): fts"; exit 1; }
 	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT key FROM entries WHERE ee LIKE '%10.1/late%'")" = journals/tse/MuellerA14 || { echo "FAIL (db): ee like"; exit 1; }
+	@test "$$(sqlite3 /tmp/dblp_test.db 'SELECT count(*) FROM proceedings')" = 2 || { echo "FAIL (db): proceedings count"; exit 1; }
+	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT count(*) FROM proceedings WHERE key LIKE 'journals/%'")" = 1 || { echo "FAIL (db): journals-keyed proceedings"; exit 1; }
+	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT substr(p.title,1,21) FROM entries e JOIN proceedings p ON p.key=e.crossref WHERE e.key='conf/icse/SmithB01'")" = "Proceedings of the 23" || { echo "FAIL (db): crossref join"; exit 1; }
 	@rm -f /tmp/dblp_test.rb.txt /tmp/dblp_test.go.txt /tmp/dblp_test.rb.sql /tmp/dblp_test.go.sql /tmp/dblp_test.db
-	@echo "PASS: text + sql agree; db builds and queries (title_norm, fts, ee)"
+	@echo "PASS: text + sql agree; db builds and queries (title_norm, fts, ee, proceedings join)"
 
 dblp.txt.gz: dblp.xml.gz dblp.dtd config.yaml $(EXTRACT_DEP)
 	gunzip -c dblp.xml.gz \

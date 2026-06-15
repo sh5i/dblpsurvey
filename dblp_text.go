@@ -35,10 +35,12 @@ var (
 )
 
 var refTags = []string{"journal", "booktitle", "series", "volume", "number", "pages"}
+var allTags = []string{"journal", "booktitle", "series", "volume", "number", "pages",
+	"title", "publisher", "isbn", "url", "crossref"}
 var fieldRe = map[string]*regexp.Regexp{}
 
 func init() {
-	for _, t := range append(append([]string{}, refTags...), "title") {
+	for _, t := range allTags {
 		fieldRe[t] = regexp.MustCompile(`(?s)<` + t + `\b[^>]*>(.*?)</` + t + `>`)
 	}
 }
@@ -109,6 +111,9 @@ func typeOf(record string) string {
 	if strings.HasPrefix(record, "<inproceedings") {
 		return "inproceedings"
 	}
+	if strings.HasPrefix(record, "<proceedings") {
+		return "proceedings"
+	}
 	return "article"
 }
 
@@ -133,16 +138,17 @@ type entry struct {
 	out  string
 }
 
-// closeCapture returns the line up to and including the rightmost </article> or
-// </inproceedings> (mirrors the greedy regex `(.*</(?:article|inproceedings)>)`).
+// closeCapture returns the line up to and including the rightmost record close tag
+// (</article>, </inproceedings> or </proceedings>).  A record contains only its own
+// close tag, so searching all three is safe; "</proceedings>" is not a substring of
+// "</inproceedings>".
 func closeCapture(line string) (string, bool) {
 	end := -1
-	if i := strings.LastIndex(line, "</article>"); i >= 0 {
-		end = i + len("</article>")
-	}
-	if i := strings.LastIndex(line, "</inproceedings>"); i >= 0 {
-		if e := i + len("</inproceedings>"); e > end {
-			end = e
+	for _, tag := range []string{"</article>", "</inproceedings>", "</proceedings>"} {
+		if i := strings.LastIndex(line, tag); i >= 0 {
+			if e := i + len(tag); e > end {
+				end = e
+			}
 		}
 	}
 	if end < 0 {
@@ -161,6 +167,11 @@ func startMatch(line string, journals, confs map[string]bool) (string, bool) {
 	}
 	if i := strings.Index(line, "<inproceedings "); i >= 0 && (start < 0 || i < start) {
 		start = i
+	}
+	if sqlOut { // proceedings volumes go to the sql output only
+		if i := strings.Index(line, "<proceedings "); i >= 0 && (start < 0 || i < start) {
+			start = i
+		}
 	}
 	if start < 0 {
 		return "", false
@@ -200,6 +211,26 @@ func extract(record string) (entry, bool) {
 	if m := keyRe.FindStringSubmatch(record); m != nil {
 		key = m[1]
 	}
+	typ := typeOf(record)
+	field := func(t string) string { v, _ := textOf(record, fieldRe[t]); return v }
+	var ees []string
+	for _, m := range eeRe.FindAllStringSubmatch(record, -1) {
+		ees = append(ees, unescape(m[1]))
+	}
+
+	if typ == "proceedings" {
+		out := "INSERT INTO proceedings VALUES(" +
+			sqlQuote(key) + "," + // key
+			sqlQuote(field("title")) + "," + // title
+			sqlQuote(field("booktitle")) + "," + // booktitle
+			strconv.Itoa(year) + "," + // year
+			sqlQuote(field("publisher")) + "," + // publisher
+			sqlQuote(field("isbn")) + "," + // isbn
+			sqlQuote(strings.Join(ees, " ")) + "," + // ee
+			sqlQuote(field("url")) + ");" // url
+		return entry{year, "", out}, true
+	}
+
 	var authors []string
 	for _, m := range authorRe.FindAllStringSubmatch(record, -1) {
 		authors = append(authors, unescape(stripTags(m[1])))
@@ -207,10 +238,6 @@ func extract(record string) (entry, bool) {
 	title := ""
 	if v, ok := textOf(record, fieldRe["title"]); ok {
 		title = strings.TrimSuffix(v, ".")
-	}
-	var ees []string
-	for _, m := range eeRe.FindAllStringSubmatch(record, -1) {
-		ees = append(ees, unescape(m[1]))
 	}
 	doi := ""
 	for _, e := range ees {
@@ -225,10 +252,9 @@ func extract(record string) (entry, bool) {
 	auth := strings.Join(authors, ", ")
 
 	if sqlOut {
-		field := func(t string) string { v, _ := textOf(record, fieldRe[t]); return v }
 		out := "INSERT INTO entries VALUES(" +
 			sqlQuote(key) + "," + // key
-			sqlQuote(typeOf(record)) + "," + // type
+			sqlQuote(typ) + "," + // type
 			sqlQuote(venueOf(key)) + "," + // venue
 			strconv.Itoa(year) + "," + // year
 			sqlQuote(auth) + "," + // authors
@@ -240,7 +266,8 @@ func extract(record string) (entry, bool) {
 			sqlQuote(field("number")) + "," + // number
 			sqlQuote(field("pages")) + "," + // pages
 			sqlQuote(doi) + "," + // doi
-			sqlQuote(strings.Join(ees, " ")) + ");" // ee
+			sqlQuote(strings.Join(ees, " ")) + "," + // ee
+			sqlQuote(field("crossref")) + ");" // crossref
 		return entry{year, "", out}, true
 	}
 

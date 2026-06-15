@@ -18,7 +18,25 @@
 <pages>5-9</pages>
 <year>2001</year>
 <ee>https://example.org/only</ee>
-</inproceedings>
+<crossref>conf/icse/2001</crossref>
+</inproceedings><proceedings mdate="2024-01-01" key="conf/icse/2001">
+<editor>Some Editor</editor>
+<title>Proceedings of the 23rd International Conference on Software Engineering, ICSE 2001, Toronto, Ontario, Canada, May 12-19, 2001</title>
+<booktitle>ICSE</booktitle>
+<publisher>IEEE Computer Society</publisher>
+<year>2001</year>
+<isbn>0-7695-1050-7</isbn>
+<ee>https://doi.org/10.1109/ICSE.2001.919076</ee>
+<url>db/conf/icse/icse2001.html</url>
+</proceedings>
+<proceedings mdate="2026-01-01" key="journals/corr/absWS25">
+<editor>Ed Itor</editor>
+<title>Proceedings 5th International Workshop on Example Topics, EWET 2025, Tokyo, Japan, 1 May 2025</title>
+<booktitle>EWET@SomeConf</booktitle>
+<year>2025</year>
+<ee>https://doi.org/10.4204/EPTCS.999</ee>
+<url>db/journals/corr/absWS25.html</url>
+</proceedings>
 <article mdate="2017-01-01" key="journals/tse/OldOne90">
 <title>Too old to survive</title>
 <journal>IEEE Trans. Software Eng.</journal>

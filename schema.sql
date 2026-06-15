@@ -17,13 +17,28 @@ CREATE TABLE entries (
   number     TEXT,
   pages      TEXT,
   doi        TEXT,              -- preferred ee (doi.org if present, else first)
-  ee         TEXT               -- all ee links, space-separated
+  ee         TEXT,              -- all ee links, space-separated
+  crossref   TEXT               -- proceedings key (inproceedings); joins proceedings.key
 );
 
 CREATE INDEX idx_year       ON entries(year);
 CREATE INDEX idx_venue      ON entries(venue);
 CREATE INDEX idx_doi        ON entries(doi);
 CREATE INDEX idx_title_norm ON entries(title_norm);
+CREATE INDEX idx_crossref   ON entries(crossref);
+
+-- Proceedings volume records (the long conference name lives here, in `title`).
+-- Join: entries.crossref = proceedings.key.
+CREATE TABLE proceedings (
+  key       TEXT PRIMARY KEY,  -- e.g. conf/icsm/2025
+  title     TEXT,              -- full conference name (+ location, dates)
+  booktitle TEXT,              -- short form (ICSME)
+  year      INTEGER,
+  publisher TEXT,
+  isbn      TEXT,
+  ee        TEXT,              -- all ee links, space-separated
+  url       TEXT
+);
 
 -- Full-text search over title + authors (fuzzy/token matching for bib lookup).
 -- Populated after the entries are loaded:
