@@ -1,0 +1,8 @@
+journals:
+  - tse
+  - corr
+conferences:
+  - icse
+year:
+  lower: 1995
+  upper: 2100
