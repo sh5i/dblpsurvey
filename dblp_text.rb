@@ -208,7 +208,7 @@ if $format == 'sql'
       sql_quote(p[:ee]),        # ee
       sql_quote(p[:url]),       # url
     ]
-    puts "INSERT INTO proceedings VALUES(#{cols.join(',')});"
+    puts "INSERT INTO proceedings(key,title,booktitle,year,publisher,isbn,ee,url) VALUES(#{cols.join(',')});"
   end
   puts 'COMMIT;'
 else

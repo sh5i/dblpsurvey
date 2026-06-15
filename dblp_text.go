@@ -219,7 +219,7 @@ func extract(record string) (entry, bool) {
 	}
 
 	if typ == "proceedings" {
-		out := "INSERT INTO proceedings VALUES(" +
+		out := "INSERT INTO proceedings(key,title,booktitle,year,publisher,isbn,ee,url) VALUES(" +
 			sqlQuote(key) + "," + // key
 			sqlQuote(field("title")) + "," + // title
 			sqlQuote(field("booktitle")) + "," + // booktitle

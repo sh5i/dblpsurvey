@@ -50,6 +50,7 @@ test: dblp2text
 	@sqlite3 /tmp/dblp_test.db < schema.sql
 	@./dblp2text --format=sql --config=test/config.yaml --dtd=test/test.dtd < test/fixture.xml | sqlite3 /tmp/dblp_test.db
 	@sqlite3 /tmp/dblp_test.db "INSERT INTO fts(key,title,authors) SELECT key,title,authors FROM entries;"
+	@ruby dblp_confname.rb /tmp/dblp_test.db | sqlite3 /tmp/dblp_test.db
 	@test "$$(sqlite3 /tmp/dblp_test.db 'SELECT count(*) FROM entries')" = 3 || { echo "FAIL (db): row count"; exit 1; }
 	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT key FROM entries WHERE title_norm='onh2orefactoring'")" = journals/tse/MuellerA14 || { echo "FAIL (db): title_norm"; exit 1; }
 	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT key FROM fts WHERE fts MATCH 'refactoring'")" = journals/tse/MuellerA14 || { echo "FAIL (db): fts"; exit 1; }
@@ -57,8 +58,11 @@ test: dblp2text
 	@test "$$(sqlite3 /tmp/dblp_test.db 'SELECT count(*) FROM proceedings')" = 2 || { echo "FAIL (db): proceedings count"; exit 1; }
 	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT count(*) FROM proceedings WHERE key LIKE 'journals/%'")" = 1 || { echo "FAIL (db): journals-keyed proceedings"; exit 1; }
 	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT substr(p.title,1,21) FROM entries e JOIN proceedings p ON p.key=e.crossref WHERE e.key='conf/icse/SmithB01'")" = "Proceedings of the 23" || { echo "FAIL (db): crossref join"; exit 1; }
+	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT conf_name FROM proceedings WHERE key='conf/icse/2001'")" = "International Conference on Software Engineering" || { echo "FAIL (db): conf_name"; exit 1; }
+	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT ordinal FROM proceedings WHERE key='conf/icse/2001'")" = 23 || { echo "FAIL (db): conf ordinal"; exit 1; }
+	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT kind||'/'||ordinal FROM proceedings WHERE key='journals/corr/absWS25'")" = "workshop/5" || { echo "FAIL (db): workshop kind/ordinal"; exit 1; }
 	@rm -f /tmp/dblp_test.rb.txt /tmp/dblp_test.go.txt /tmp/dblp_test.rb.sql /tmp/dblp_test.go.sql /tmp/dblp_test.db
-	@echo "PASS: text + sql agree; db builds and queries (title_norm, fts, ee, proceedings join)"
+	@echo "PASS: text + sql agree; db builds and queries (title_norm, fts, ee, proceedings join, conf_name)"
 
 dblp.txt.gz: dblp.xml.gz dblp.dtd config.yaml $(EXTRACT_DEP)
 	gunzip -c dblp.xml.gz \
@@ -66,8 +70,11 @@ dblp.txt.gz: dblp.xml.gz dblp.dtd config.yaml $(EXTRACT_DEP)
 	  | gzip -c > $@
 
 # SQLite database for structured / agent queries (needs the sqlite3 CLI with FTS5).
-dblp.db: dblp.xml.gz dblp.dtd config.yaml schema.sql $(EXTRACT_DEP)
+# Final step derives clean conference names into proceedings.{kind,ordinal,conf_name,...}
+# (Ruby post-pass, no LLM/network; the raw proceedings.title is left untouched).
+dblp.db: dblp.xml.gz dblp.dtd config.yaml schema.sql dblp_confname.rb $(EXTRACT_DEP)
 	rm -f $@
 	sqlite3 $@ < schema.sql
 	gunzip -c dblp.xml.gz | $(EXTRACT) --format=sql --config=config.yaml --dtd=dblp.dtd | sqlite3 $@
 	sqlite3 $@ "INSERT INTO fts(key,title,authors) SELECT key,title,authors FROM entries;"
+	ruby dblp_confname.rb $@ | sqlite3 $@

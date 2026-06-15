@@ -29,15 +29,22 @@ CREATE INDEX idx_crossref   ON entries(crossref);
 
 -- Proceedings volume records (the long conference name lives here, in `title`).
 -- Join: entries.crossref = proceedings.key.
+-- The kind/ordinal/conf_name/canonical columns are derived by dblp_confname.rb as a
+-- post-pass (see the Makefile); `title` is the raw DBLP title and is left untouched.
 CREATE TABLE proceedings (
-  key       TEXT PRIMARY KEY,  -- e.g. conf/icsm/2025
-  title     TEXT,              -- full conference name (+ location, dates)
-  booktitle TEXT,              -- short form (ICSME)
-  year      INTEGER,
-  publisher TEXT,
-  isbn      TEXT,
-  ee        TEXT,              -- all ee links, space-separated
-  url       TEXT
+  key         TEXT PRIMARY KEY,  -- e.g. conf/icsm/2025
+  title       TEXT,              -- raw DBLP title (full name + location, dates) — kept as-is
+  booktitle   TEXT,              -- short form / acronym (ICSME)
+  year        INTEGER,
+  publisher   TEXT,
+  isbn        TEXT,
+  ee          TEXT,              -- all ee links, space-separated
+  url         TEXT,
+  kind        TEXT,              -- main | workshop | companion | joint | other   (derived)
+  ordinal     INTEGER,           -- edition number, or NULL                       (derived)
+  ordinal_src TEXT,              -- title | inferred | none                        (derived)
+  conf_name   TEXT,              -- clean series name, e.g. "International Conference on ..." (derived)
+  canonical   TEXT               -- assembled, e.g. "Proceedings of the 23rd ... (ICSE 2001)"  (derived)
 );
 
 -- Full-text search over title + authors (fuzzy/token matching for bib lookup).
