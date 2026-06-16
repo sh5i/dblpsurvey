@@ -25,9 +25,9 @@ $config = 'config.yaml'
 $dtd = 'dblp.dtd'
 ARGV.options do |q|
   q.on('--color', 'ANSI coloring (text format)') { $color = true }
-  q.on('--format=s', 'output format: text (default) or sql') { |a| $format = a }
-  q.on('--config=s', 'preference YAML (default: config.yaml)') { |a| $config = a }
-  q.on('--dtd=s', 'DTD file for entity definitions (default: dblp.dtd)') { |a| $dtd = a }
+  q.on('--format=s', 'output format: text (default) or sql') {|a| $format = a }
+  q.on('--config=s', 'preference YAML (default: config.yaml)') {|a| $config = a }
+  q.on('--dtd=s', 'DTD file for entity definitions (default: dblp.dtd)') {|a| $dtd = a }
   q.parse!
 end
 
@@ -109,7 +109,7 @@ VENUE_RE  = %r{\A(?:journals|conf)/([^/]+)/}
 AUTHOR_RE = %r{<author\b[^>]*>(.*?)</author>}m
 EE_RE     = %r{<ee\b[^>]*>(.*?)</ee>}m
 FIELD_RE  = %w[journal booktitle series volume number pages title publisher isbn url crossref]
-              .each_with_object({}) { |t, h| h[t] = %r{<#{t}\b[^>]*>(.*?)</#{t}>}m }
+              .each_with_object({}) {|t, h| h[t] = %r{<#{t}\b[^>]*>(.*?)</#{t}>}m }
 
 def text_of(rec, tag)              # first <tag>..</tag>, inner tags stripped, entities unescaped
   return nil unless rec =~ FIELD_RE[tag]
@@ -139,21 +139,21 @@ ARGF.each_line do |line|
             :year      => (year || '0').to_i,
             :publisher => (text_of(record, 'publisher') || ''),
             :isbn      => (text_of(record, 'isbn') || ''),
-            :ee        => record.scan(EE_RE).map { |m| unescape(m[0]) }.join(' '),
+            :ee        => record.scan(EE_RE).map {|m| unescape(m[0]) }.join(' '),
             :url       => (text_of(record, 'url') || ''),
           }
         else
           fields = {}
-          REF_FIELDS.each { |t| fields[t] = text_of(record, t) }
+          REF_FIELDS.each {|t| fields[t] = text_of(record, t) }
           articles << {
             :key      => (record[KEY_RE, 1] || ''),
             :type     => (record[TYPE_RE, 1] || ''),
             :venue    => ((record[KEY_RE, 1] || '')[VENUE_RE, 1] || ''),
             :year     => (year || '0').to_i,
-            :authors  => record.scan(AUTHOR_RE).map { |m| unescape(strip_tags(m[0])) },
+            :authors  => record.scan(AUTHOR_RE).map {|m| unescape(strip_tags(m[0])) },
             :title    => (text_of(record, 'title') || '').sub(/\.$/, ''),
             :fields   => fields,
-            :ee       => record.scan(EE_RE).map { |m| unescape(m[0]) },
+            :ee       => record.scan(EE_RE).map {|m| unescape(m[0]) },
             :crossref => (text_of(record, 'crossref') || ''),
           }
         end
@@ -178,11 +178,11 @@ ARGF.each_line do |line|
 end
 
 def reference_of(a)
-  REF_FIELDS.map { |t| a[:fields][t] }.compact.join(', ')
+  REF_FIELDS.map {|t| a[:fields][t] }.compact.join(', ')
 end
 
 def doi_of(a)
-  a[:ee].find { |e| /doi\.org/ =~ e } || a[:ee][0] || ''
+  a[:ee].find {|e| /doi\.org/ =~ e } || a[:ee][0] || ''
 end
 
 if $format == 'sql'
@@ -227,7 +227,7 @@ if $format == 'sql'
   end
   puts 'COMMIT;'
 else
-  articles.sort_by! { |a| [a[:year], reference_of(a)] }
+  articles.sort_by! {|a| [a[:year], reference_of(a)] }
   articles.each do |a|
     key = "(#{a[:key]})"
     authors = a[:authors].join(', ')
