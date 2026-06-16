@@ -184,11 +184,11 @@ func startMatch(line string, journals, confs map[string]bool) (string, bool) {
 	ok := false
 	if rest, found := strings.CutPrefix(v, "journals/"); found {
 		if e := strings.IndexAny(rest, `/"`); e >= 0 && rest[e] == '/' {
-			ok = journals[rest[:e]]
+			ok = journals["*"] || journals[rest[:e]] // "*" passes every journal
 		}
 	} else if rest, found := strings.CutPrefix(v, "conf/"); found {
 		if e := strings.IndexAny(rest, `/"`); e >= 0 && rest[e] == '/' {
-			ok = confs[rest[:e]]
+			ok = confs["*"] || confs[rest[:e]] // "*" passes every conference
 		}
 	}
 	if !ok {
@@ -289,7 +289,7 @@ func extract(record string) (entry, bool) {
 	return entry{year, ref, out}, true
 }
 
-func loadConfig(path string) (journals, confs map[string]bool, journalNames map[string]string, lower, upper int) {
+func loadConfig(path string) (journals, confs map[string]bool, journalNames map[string]string, lower, upper int, err error) {
 	journals, confs = map[string]bool{}, map[string]bool{}
 	journalNames = map[string]string{}
 	lower, upper = 1900, 2100
@@ -315,7 +315,7 @@ func loadConfig(path string) (journals, confs map[string]bool, journalNames map[
 		t := strings.TrimSpace(line)
 		switch {
 		case strings.HasPrefix(t, "- "):
-			v := strings.TrimSpace(t[2:])
+			v := unquoteYAML(strings.TrimSpace(t[2:])) // a "*" item needs YAML quotes stripped
 			if section == "journals" {
 				journals[v] = true
 			} else if section == "conferences" {
@@ -333,6 +333,15 @@ func loadConfig(path string) (journals, confs map[string]bool, journalNames map[
 		}
 	}
 	return
+}
+
+// unquoteYAML strips a single pair of surrounding double or single quotes, if present
+// (so the YAML scalar `"*"` becomes `*`).  Plain unquoted scalars pass through unchanged.
+func unquoteYAML(s string) string {
+	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {
+		return s[1 : len(s)-1]
+	}
+	return s
 }
 
 // parseQuotedPair reads a `"key": "value"` line (both double-quoted, no escaped quotes —
@@ -391,7 +400,15 @@ func main() {
 	dtd := flag.String("dtd", "dblp.dtd", "DTD for entity definitions")
 	flag.Parse()
 
-	journals, confs, journalNames, lower, upper := loadConfig(*config)
+	journals, confs, journalNames, lower, upper, err := loadConfig(*config)
+	if err != nil {
+		os.Stderr.WriteString("dblp(go): config '" + *config + "' not found (cp config.yaml.sample config.yaml)\n")
+		os.Exit(1)
+	}
+	if len(journals) == 0 && len(confs) == 0 {
+		os.Stderr.WriteString("dblp(go): config '" + *config + "' selects no venues; list ids under journals:/conferences:, or use '- \"*\"' to pass everything\n")
+		os.Exit(1)
+	}
 	entMap = loadDTD(*dtd)
 	lowerY, upperY = lower, upper
 	colorOn = *color

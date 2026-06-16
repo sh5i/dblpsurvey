@@ -32,7 +32,8 @@ ARGV.options do |q|
 end
 
 # Preferences: which journals/conferences and which year range survive.
-config = YAML.load_file($config)
+config = YAML.load_file($config) rescue nil
+abort "dblp_text.rb: config '#{$config}' not found (cp config.yaml.sample config.yaml)" unless config.is_a?(Hash)
 lower = config['year']['lower'] rescue 1900
 upper = config['year']['upper'] rescue 2100
 years = (lower..upper)
@@ -76,9 +77,19 @@ def sql_quote(s)
   "'" + s.to_s.gsub("'", "''") + "'"
 end
 
+# Return true if the venue is selected: listed explicitly, or "*" (pass everything).
+def wanted?(set, venue)
+  set.include?('*') || set.include?(venue)
+end
+
 # Precompiled matchers (interpolated regexps must not be rebuilt in the loop).
-JOURNALS = config['journals'].to_set
-CONFS    = config['conferences'].to_set
+# A "*" entry passes every venue of that kind (no filtering); see config.all.yaml.sample.
+JOURNALS = (config['journals'] || []).to_set
+CONFS    = (config['conferences'] || []).to_set
+if JOURNALS.empty? && CONFS.empty?
+  abort "dblp_text.rb: config '#{$config}' selects no venues; " \
+        "list ids under journals:/conferences:, or use '- \"*\"' to pass everything"
+end
 # Start tag of an article/inproceedings with a key; captures (from-tag, kind, venue).
 # Venue membership is then a hash lookup, not a huge regex alternation.
 START_RE  = %r{(<(?:article|inproceedings)\s.*key="(journals|conf)/([^/"]+)/.*)}
@@ -156,10 +167,10 @@ ARGF.each_line do |line|
   # selection is a hash lookup on the captured venue token.  Proceedings are only
   # collected for the sql format (the text database is papers only).
   if rec.nil? && line.include?('key="')
-    if line =~ START_RE && ($2 == 'journals' ? JOURNALS : CONFS).include?($3)
+    if line =~ START_RE && wanted?($2 == 'journals' ? JOURNALS : CONFS, $3)
       rec = [$1]
       rectype = :entry
-    elsif $format == 'sql' && line =~ PROC_START_RE && ($2 == 'journals' ? JOURNALS : CONFS).include?($3)
+    elsif $format == 'sql' && line =~ PROC_START_RE && wanted?($2 == 'journals' ? JOURNALS : CONFS, $3)
       rec = [$1]
       rectype = :proc
     end
