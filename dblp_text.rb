@@ -176,6 +176,10 @@ end
 
 if $format == 'sql'
   puts 'BEGIN;'
+  # Journal full names from config (abbreviation -> full title); see schema.sql `journals`.
+  (config['journal_names'] || {}).sort.each do |abbrev, full|
+    puts "INSERT INTO journals(abbrev, full_name) VALUES(#{sql_quote(abbrev)},#{sql_quote(full)});"
+  end
   articles.each do |a|
     f = a[:fields]
     cols = [

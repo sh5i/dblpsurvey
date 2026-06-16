@@ -47,6 +47,18 @@ CREATE TABLE proceedings (
   canonical   TEXT               -- assembled, e.g. "Proceedings of the 23rd ... (ICSE 2001)"  (derived)
 );
 
+-- Journal full names. DBLP's <article> only carries an ISO-4 abbreviation (e.g.
+-- "IEEE Trans. Software Eng."), never the full title, and there is no journal record
+-- type to look it up. This is a hand-curated offline map (no network/crawl), keyed on
+-- the per-article abbreviation because it is finer than the venue id: venue `ieicet`
+-- alone spans four journals, `smr` two (a rename), `corr` three.
+-- Seeded at build time from config.yaml's `journal_names:` map (the extractor emits the
+-- INSERTs in --format=sql). Join: entries.journal = journals.abbrev.
+CREATE TABLE journals (
+  abbrev    TEXT PRIMARY KEY,  -- DBLP <journal> string, e.g. "J. Syst. Softw."
+  full_name TEXT               -- full title, e.g. "Journal of Systems and Software"
+);
+
 -- Full-text search over title + authors (fuzzy/token matching for bib lookup).
 -- Populated after the entries are loaded:
 --   INSERT INTO fts(key,title,authors) SELECT key,title,authors FROM entries;

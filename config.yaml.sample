@@ -15,3 +15,9 @@ conferences:
 year:
   lower: 2005
   upper: 2100
+
+# Optional: DBLP <article> only carries the ISO-4 abbreviation.
+# Map abbreviation -> full title here and it is registered into the SQLite database at build time.
+journal_names:
+  "IEEE Trans. Software Eng.": "IEEE Transactions on Software Engineering"
+  "ACM Trans. Softw. Eng. Methodol.": "ACM Transactions on Software Engineering and Methodology"

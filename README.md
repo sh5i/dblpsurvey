@@ -67,7 +67,8 @@ year:
 handy for scripts, or for checking/cleaning a `.bib` against DBLP offline.
 Build it alone with `make dblp.db` (needs the `sqlite3` CLI with FTS5).
 
-It is one flat table `entries` plus a full-text table `fts`:
+Its core is one flat table `entries` plus a full-text table `fts`, with two small
+lookup tables (`proceedings`, `journals`) you can join for clean venue/journal names:
 
 | column | notes |
 |---|---|
@@ -84,6 +85,13 @@ It is one flat table `entries` plus a full-text table `fts`:
 
 `fts(key, title, authors)` is an FTS5 index for ranked fuzzy search.
 
+DBLP's `<article>` only stores an ISO-4 *abbreviation* (`IEEE Trans. Software Eng.`),
+never the full journal title, so `journals(abbrev, full_name)` is a hand-curated offline
+map (no network) — join it on `entries.journal = journals.abbrev`. (Keyed on the
+abbreviation, not the venue id: e.g. `ieicet` alone spans four journals.) Likewise the
+`proceedings` table carries derived `conf_name`/`canonical` names for conferences, joined
+on `entries.crossref = proceedings.key`.
+
 ```sql
 -- structured filter
 SELECT title, year FROM entries WHERE venue = 'icse' AND year >= 2020;
@@ -97,6 +105,10 @@ SELECT key, year, venue FROM entries WHERE title_norm = 'refactoringimprovingthe
 
 -- match a DOI inside any electronic-edition link (handles arXiv vs publisher links)
 SELECT key FROM entries WHERE ee LIKE '%10.1145/3377811%';
+
+-- expand the abbreviated journal to its full title
+SELECT e.year, j.full_name, e.title FROM entries e
+JOIN journals j ON j.abbrev = e.journal WHERE e.venue = 'tse' AND e.year = 2020;
 
 -- author with an abbreviated given name ("M. Fowler"): prefix the initial, scope to authors
 SELECT e.key, e.authors, e.title FROM fts JOIN entries e USING(key)

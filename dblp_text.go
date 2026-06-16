@@ -289,8 +289,9 @@ func extract(record string) (entry, bool) {
 	return entry{year, ref, out}, true
 }
 
-func loadConfig(path string) (journals, confs map[string]bool, lower, upper int) {
+func loadConfig(path string) (journals, confs map[string]bool, journalNames map[string]string, lower, upper int) {
 	journals, confs = map[string]bool{}, map[string]bool{}
+	journalNames = map[string]string{}
 	lower, upper = 1900, 2100
 	f, err := os.Open(path)
 	if err != nil {
@@ -320,6 +321,11 @@ func loadConfig(path string) (journals, confs map[string]bool, lower, upper int)
 			} else if section == "conferences" {
 				confs[v] = true
 			}
+		case section == "journal_names" && strings.HasPrefix(t, `"`):
+			// a quoted YAML mapping line:  "abbrev": "full title"
+			if k, v, ok := parseQuotedPair(t); ok {
+				journalNames[k] = v
+			}
 		case strings.HasPrefix(t, "lower:"):
 			lower, _ = strconv.Atoi(strings.TrimSpace(t[len("lower:"):]))
 		case strings.HasPrefix(t, "upper:"):
@@ -327,6 +333,28 @@ func loadConfig(path string) (journals, confs map[string]bool, lower, upper int)
 		}
 	}
 	return
+}
+
+// parseQuotedPair reads a `"key": "value"` line (both double-quoted, no escaped quotes —
+// DBLP journal names contain none) into its key and value.
+func parseQuotedPair(t string) (key, val string, ok bool) {
+	rest := t[1:] // drop opening quote
+	ke := strings.IndexByte(rest, '"')
+	if ke < 0 {
+		return
+	}
+	key = rest[:ke]
+	rest = rest[ke+1:]
+	vs := strings.IndexByte(rest, '"') // opening quote of value
+	if vs < 0 {
+		return
+	}
+	rest = rest[vs+1:]
+	ve := strings.IndexByte(rest, '"')
+	if ve < 0 {
+		return
+	}
+	return key, rest[:ve], true
 }
 
 func loadDTD(path string) map[string]string {
@@ -363,7 +391,7 @@ func main() {
 	dtd := flag.String("dtd", "dblp.dtd", "DTD for entity definitions")
 	flag.Parse()
 
-	journals, confs, lower, upper := loadConfig(*config)
+	journals, confs, journalNames, lower, upper := loadConfig(*config)
 	entMap = loadDTD(*dtd)
 	lowerY, upperY = lower, upper
 	colorOn = *color
@@ -433,6 +461,16 @@ func main() {
 	defer w.Flush()
 	if sqlOut {
 		w.WriteString("BEGIN;\n")
+		// Journal full names from config (abbreviation -> full title); see schema.sql `journals`.
+		names := make([]string, 0, len(journalNames))
+		for k := range journalNames {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		for _, k := range names {
+			w.WriteString("INSERT INTO journals(abbrev, full_name) VALUES(" +
+				sqlQuote(k) + "," + sqlQuote(journalNames[k]) + ");\n")
+		}
 		for _, e := range entries {
 			w.WriteString(e.out)
 			w.WriteByte('\n')

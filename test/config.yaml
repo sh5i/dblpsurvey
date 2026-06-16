@@ -1,6 +1,8 @@
 journals:
   - tse
   - corr
+journal_names:
+  "IEEE Trans. Software Eng.": "IEEE Transactions on Software Engineering"
 conferences:
   - icse
 year:
