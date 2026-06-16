@@ -182,6 +182,9 @@ NAME_TYPE_RE = /\b(Conference|Symposium|Workshop|Congress|Colloquium|Meeting|For
 # topic — used to decide whether an inverted fragment still needs its topic grafted on.
 QUAL = %w[International IEEE ACM IFIP Annual Working National European Asia-Pacific
           World Joint Int'l SIGSOFT SIGPLAN].join("|")
+# Sponsor/organiser words that can sit BEFORE an edition ordinal ("IEEE 23rd ...",
+# "ACM/IEEE 27th ..."); used to drop that ordinal from the reusable series name.
+SPONSOR = "IEEE|ACM|IFIP|IET|Annual"
 
 MONTHS    = %w[January February March April May June July August September October November December
                Jan Feb Mar Apr Jun Jul Aug Sep Sept Oct Nov Dec].join("|")
@@ -340,6 +343,12 @@ def tidy_name(name, kind, parent)
   name = name.sub(/\s+Companion\z/i, "") if kind == "companion"         # companion name = parent name
   name = name.sub(/\s*[-–:;]+\s*\z/, "")                                # dangling trailing punctuation
   name = name.gsub(/\s{2,}/, " ").strip
+  # An edition ordinal must not survive in the reusable series name: build_canonical_name
+  # re-adds it from the ordinal atom, so keeping one yields "the 23rd IEEE 23rd ...". Drop it
+  # whether it sits after a sponsor prefix ("IEEE 23rd International ..." -> "IEEE International
+  # ...") or is leading ("31st International ..." from an inverted LNCS title -> "International ...").
+  name = name.sub(/\A((?:#{SPONSOR})(?:[\s\/&]+(?:#{SPONSOR}))*)\s+(?:\d{1,3}(?:st|nd|rd|th)|#{ORD_WORD})\b[\s.,:-]*/i, '\1 ')
+  name = strip_leading_ordinal(name).strip
   name = titlecase_lower(name) if name =~ /\A[a-z]/   # ACM-DL lowercase title -> Title Case
   # Topic-only satellite ("Agent Modeling" under conf/aaai) -> "AAAI Workshop on Agent Modeling".
   if kind == "workshop" && parent && !name.empty? && name !~ NAME_TYPE_RE && !name.start_with?(parent)
