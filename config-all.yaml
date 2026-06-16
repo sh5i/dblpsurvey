@@ -1,0 +1,10 @@
+# Pass-through config sample: Every journals and proceedings survives.
+# WARNING: the resulting dblp.txt.gz and dblp.db are very large and slow to build.
+# To use: cp config-all.yaml config.yaml && make
+journals:
+  - "*"
+conferences:
+  - "*"
+year:
+  lower: 1900
+  upper: 2100

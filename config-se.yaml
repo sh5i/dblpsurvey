@@ -1,0 +1,191 @@
+# Sample config for software engineering (SE) field.
+# To use: cp config-se.yaml config.yaml && make
+journals:
+  # IEEE Transactions on Software Engineering
+  - tse
+  # ACM Transactions on Software Engineering and Methodology
+  - tosem
+  # Automated Software Engineering
+  - ase
+  # IEEE Software
+  - software
+  # ACM Computing Surveys
+  - csur
+  # IEEE Access
+  - access
+
+  # Journal of Systems and Software
+  - jss
+  # Information and Software Technology
+  - infsof
+  # International Journal on Software Tools for Technology Transfer
+  - sttt
+
+  # Empirical Software Engineering
+  - ese
+  # Science of Computer Programming
+  - scp
+  # Journal of Software: Evolution and Process
+  - smr
+
+  # Requirements Engineering
+  - re
+  # Information Systems
+  - is
+  # Software and Systems Modeling
+  - sosym
+
+  # IEICE Transactions
+  - ieicet
+  # International Journal of Software Engineering and Knowledge Engineering
+  - ijseke
+
+  # NII Shonan Meeting Report
+  - shonan-reports
+  # arXiv
+  - corr
+
+conferences:
+  # International Conference on Software Engineering
+  - icse
+  # Foundations of Software Engineering (FSE)
+  - sigsoft
+  # Automated Software Engineering (ASE / KBSE)
+  - kbse
+  # Fundamental Approaches to Software Engineering
+  - fase
+  # International Symposium on Software Testing and Analysis
+  - issta
+  # International Symposium on Empirical Software Engineering and Measurement
+  - esem
+  # IEEE International Conference on Software Maintenance [and Evolution]
+  - icsm
+  # IEEE International Conference on Software Analysis, Evolution, and Reengineering
+  - saner
+  # Working Conference on Reverse Engineering
+  - wcre
+  # Conference on Software Maintenance and Reengineering
+  - csmr
+  # Source Code Analysis and Manipulation
+  - scam
+  # Mining Software Repositories
+  - msr
+  # IEEE/ACM International Conference on Connected Health: Applications, Systems and Engineering Technologies
+  - chase
+  # International Conference on Technical Debt
+  - techdebt
+  # International Conference/Workshop on Program Comprehension
+  - iwpc
+  # International Workshop on Principles of Software Evolution
+  - iwpse
+  # Working Conference on Software Visualization, VISSOFT
+  - vissoft
+  # Software Visualization
+  - softvis
+  # International Conference on Software Testing, Verification, and Validation
+  - icst
+  # Search Based Software Engineering
+  - ssbse
+  # Genetic and Evolutionary Computation Conference
+  - gecco
+
+  # Requirements Engineering
+  - re
+  # International Conference on Requirements Engineering
+  - icre
+  # Requirements Engineering: Foundation for Software Quality
+  - refsq
+  # Conference on Advanced Information Systems Engineering
+  - caise
+  # International Conference on Conceptual Modeling
+  - er
+  # Model Driven Engineering Languages and Systems
+  - models
+  # Software Product Lines
+  - splc
+  # Asia-Pacific Conference on Conceptual Modelling
+  - apccm
+  # International Conference on Software Architecture
+  - icsa
+  # Working IEEE/IFIP Conference on Software Architecture
+  - wicsa
+  # Symposium on Component-Based Software Engineering
+  - cbse
+  # Conference on the Quality of Software Architectures
+  - qosa
+  # European Conference on Software Architecture
+  - ecsa
+
+  # SPLASH / OOPSLA / Onward!
+  - oopsla
+  # European Conference on Object-Oriented Programming
+  - ecoop
+  # SIGPLAN Conference on Programming Language Design and Implementation
+  - pldi
+  # MODULARITY / Aspect-Oriented Software Development
+  - aosd
+
+  # Technical Symposium on Computer Science Education (SIGCSE)
+  - sigcse
+  # Conference on Software Engineering Education and Training
+  - csee
+
+  # AAAI Conference on Artificial Intelligence
+  - aaai
+  # International Joint Conference on Artificial Intelligence
+  - ijcai
+
+  # International Computer Software and Applications Conference
+  - compsac
+  # Product Focused Software Process Improvement
+  - profes
+  # Software Quality, Reliability and Security
+  - qrs
+  # International Conference on Quality Software
+  - qsic
+  # Asia-Pacific Software Engineering Conference
+  - apsec
+
+  # International Workshop on Principles of Software Evolution
+  - iwese
+  # International Workshop on Empirical Software Engineering in Practice
+  - iwesep
+  # International Workshop on Software Clones
+  - iwsc
+
+  # International Conference on AI Foundation Models and Software Engineering
+  - forge
+  # International Conference on AI Engineering
+  - cain
+
+year:
+  lower: 1995
+  upper: 2100
+
+# Optional: DBLP <article> carries only the ISO-4 abbreviation, so map it to the full title here;
+# it is registered into the SQLite `journals` table at build time.
+journal_names:
+  "IEEE Trans. Software Eng.": "IEEE Transactions on Software Engineering"
+  "ACM Trans. Softw. Eng. Methodol.": "ACM Transactions on Software Engineering and Methodology"
+  "Autom. Softw. Eng.": "Automated Software Engineering"
+  "IEEE Softw.": "IEEE Software"
+  "ACM Comput. Surv.": "ACM Computing Surveys"
+  "J. Syst. Softw.": "Journal of Systems and Software"
+  "Inf. Softw. Technol.": "Information and Software Technology"
+  "Int. J. Softw. Tools Technol. Transf.": "International Journal on Software Tools for Technology Transfer"
+  "Empir. Softw. Eng.": "Empirical Software Engineering"
+  "Sci. Comput. Program.": "Science of Computer Programming"
+  "J. Softw. Evol. Process.": "Journal of Software: Evolution and Process"
+  "J. Softw. Maintenance Res. Pract.": "Journal of Software Maintenance and Evolution: Research and Practice"
+  "Requir. Eng.": "Requirements Engineering"
+  "Inf. Syst.": "Information Systems"
+  "Softw. Syst. Model.": "Software and Systems Modeling"
+  "IEICE Trans. Commun.": "IEICE Transactions on Communications"
+  "IEICE Trans. Electron.": "IEICE Transactions on Electronics"
+  "IEICE Trans. Fundam. Electron. Commun. Comput. Sci.": "IEICE Transactions on Fundamentals of Electronics, Communications and Computer Sciences"
+  "IEICE Trans. Inf. Syst.": "IEICE Transactions on Information and Systems"
+  "Int. J. Softw. Eng. Knowl. Eng.": "International Journal of Software Engineering and Knowledge Engineering"
+  "NII Shonan Meet. Rep.": "NII Shonan Meeting Report"
+  "Log. Methods Comput. Sci.": "Logical Methods in Computer Science"
+  "CoRR": "Computing Research Repository"
+  "arXiv": "arXiv"

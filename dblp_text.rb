@@ -33,7 +33,7 @@ end
 
 # Preferences: which journals/conferences and which year range survive.
 config = YAML.load_file($config) rescue nil
-abort "dblp_text.rb: config '#{$config}' not found (cp config.yaml.sample config.yaml)" unless config.is_a?(Hash)
+abort "dblp_text.rb: config '#{$config}' not found (e.g., try `cp config{-se,}.yaml`)" unless config.is_a?(Hash)
 lower = config['year']['lower'] rescue 1900
 upper = config['year']['upper'] rescue 2100
 years = (lower..upper)
@@ -83,7 +83,7 @@ def wanted?(set, venue)
 end
 
 # Precompiled matchers (interpolated regexps must not be rebuilt in the loop).
-# A "*" entry passes every venue of that kind (no filtering); see config.all.yaml.sample.
+# A "*" entry passes every venue of that kind (no filtering); see config-all.yaml.
 JOURNALS = (config['journals'] || []).to_set
 CONFS    = (config['conferences'] || []).to_set
 if JOURNALS.empty? && CONFS.empty?
