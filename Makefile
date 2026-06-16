@@ -36,10 +36,11 @@ distclean: clean
 dblp2text: dblp_text.go go.mod
 	go build -o $@ .
 
-# Verify the Go and Ruby extractors agree and the emitted SQL builds a queryable DB.
-# The assertions live in test/run.sh (built dblp2text is a prerequisite).
+# Verify the Go and Ruby extractors agree and the emitted SQL builds a queryable DB
+# (test/run.sh), then the dblpbib .bib-checker against a fixture DB (test/test_dblpbib.py).
 test: dblp2text
 	@./test/run.sh
+	@python3 test/test_dblpbib.py
 
 dblp.txt.gz: dblp.xml.gz dblp.dtd config.yaml $(EXTRACT_DEP)
 	gunzip -c dblp.xml.gz \

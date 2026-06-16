@@ -11,5 +11,7 @@
 ._*
 ~$*
 *~
+__pycache__/
+*.pyc
 
 /canon
