@@ -8,11 +8,15 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."   # repo root
 
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/dblpsurvey.XXXXXX") || exit 1
+# Scratch files (db, diffs) live here. Remove them on success; on failure keep them and
+# print the path, so the failing db/output can be inspected.
+trap 'rc=$?; if [ "$rc" -eq 0 ]; then rm -rf "$TMP"; else echo "test artifacts kept in $TMP" >&2; fi' EXIT
+
 DTD=test/test.dtd
 FIX=test/fixture.xml
 CFG=test/config.yaml
-DB=/tmp/dblp_test.db
-T=/tmp/dblp_test          # scratch-file prefix
+DB=$TMP/test.db
 RB="ruby dblp_text.rb"
 GO=./dblp2text
 
@@ -21,17 +25,16 @@ q()    { sqlite3 "$DB" "$1"; }
 eq()   { [ "$2" = "$3" ] || fail "$1 (got '$2', want '$3')"; }   # eq <what> <actual> <expected>
 
 # 1. extractors agree on the text output
-$RB --color --config="$CFG" --dtd="$DTD" < "$FIX" | sort > "$T.rb.txt"
-$GO --color --config="$CFG" --dtd="$DTD" < "$FIX" | sort > "$T.go.txt"
-cmp -s "$T.rb.txt" "$T.go.txt" || { diff "$T.rb.txt" "$T.go.txt"; fail "text: ruby != go"; }
+$RB --color --config="$CFG" --dtd="$DTD" < "$FIX" | sort > "$TMP/rb.txt"
+$GO --color --config="$CFG" --dtd="$DTD" < "$FIX" | sort > "$TMP/go.txt"
+cmp -s "$TMP/rb.txt" "$TMP/go.txt" || { diff "$TMP/rb.txt" "$TMP/go.txt"; fail "text: ruby != go"; }
 
 # 2. extractors agree on the sql output
-$RB --format=sql --config="$CFG" --dtd="$DTD" < "$FIX" | sort > "$T.rb.sql"
-$GO --format=sql --config="$CFG" --dtd="$DTD" < "$FIX" | sort > "$T.go.sql"
-cmp -s "$T.rb.sql" "$T.go.sql" || { diff "$T.rb.sql" "$T.go.sql"; fail "sql: ruby != go"; }
+$RB --format=sql --config="$CFG" --dtd="$DTD" < "$FIX" | sort > "$TMP/rb.sql"
+$GO --format=sql --config="$CFG" --dtd="$DTD" < "$FIX" | sort > "$TMP/go.sql"
+cmp -s "$TMP/rb.sql" "$TMP/go.sql" || { diff "$TMP/rb.sql" "$TMP/go.sql"; fail "sql: ruby != go"; }
 
 # 3. the sql builds a queryable db
-rm -f "$DB"
 sqlite3 "$DB" < schema.sql
 $GO --format=sql --config="$CFG" --dtd="$DTD" < "$FIX" | sqlite3 "$DB"
 q "INSERT INTO fts(key,title,authors) SELECT key,title,authors FROM entries;"
@@ -51,14 +54,13 @@ eq "journal join"               "$(q "SELECT j.full_name FROM entries e JOIN jou
 
 # 4. pass-through ("*"): exercise the shipped config-all.yaml; both extractors agree, and
 #    the otherwise-filtered venue (journals/xx, absent from test/config.yaml) now survives.
-$RB --format=sql --config=config-all.yaml --dtd="$DTD" < "$FIX" | sort > "$T.rb.all"
-$GO --format=sql --config=config-all.yaml --dtd="$DTD" < "$FIX" | sort > "$T.go.all"
-cmp -s "$T.rb.all" "$T.go.all" || { diff "$T.rb.all" "$T.go.all"; fail "wildcard: ruby != go"; }
-grep -q "journals/xx/Unwanted10" "$T.rb.all" || fail "wildcard: off-list venue not passed through"
+$RB --format=sql --config=config-all.yaml --dtd="$DTD" < "$FIX" | sort > "$TMP/rb.all"
+$GO --format=sql --config=config-all.yaml --dtd="$DTD" < "$FIX" | sort > "$TMP/go.all"
+cmp -s "$TMP/rb.all" "$TMP/go.all" || { diff "$TMP/rb.all" "$TMP/go.all"; fail "wildcard: ruby != go"; }
+grep -q "journals/xx/Unwanted10" "$TMP/rb.all" || fail "wildcard: off-list venue not passed through"
 
 # 5. fail-fast: a config selecting no venues (here: empty /dev/null) must error, not emit nothing.
 if $RB --format=sql --config=/dev/null --dtd="$DTD" < "$FIX" >/dev/null 2>&1; then fail "fail-fast: ruby accepted an empty config"; fi
 if $GO --format=sql --config=/dev/null --dtd="$DTD" < "$FIX" >/dev/null 2>&1; then fail "fail-fast: go accepted an empty config"; fi
 
-rm -f "$T".rb.txt "$T".go.txt "$T".rb.sql "$T".go.sql "$T".rb.all "$T".go.all "$DB"
 echo "PASS: text + sql agree; db builds and queries (title_norm, fts, ee, proceedings join, conf_name, journal join); wildcard + fail-fast"
