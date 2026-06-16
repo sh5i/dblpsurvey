@@ -126,7 +126,19 @@ ORD_WORD = ([UNIT.keys, TENS_O.keys].flatten +
             TENS_C.keys.product(UNIT.keys).map {|a, b| "#{a}-#{b}" }).join("|")  # incl "twenty-third"
 ORD_START_RE = /\A(\d{1,3}(st|nd|rd|th)|#{ORD_WORD})\b/i
 
-# Find the FIRST edition number in the string (arabic or spelled).
+ROMAN_RE = /\A(C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})\z/   # strict roman, 1..399
+# Convert a roman numeral to an Integer (nil unless a clean roman of length >= 2).
+# @param r [String]
+# @return [Integer, nil]
+def roman_to_i(r)
+  return nil unless r =~ ROMAN_RE && r.length >= 2
+  vals = r.upcase.chars.map {|c| { "I" => 1, "V" => 5, "X" => 10, "L" => 50, "C" => 100 }[c] }
+  total = vals.last
+  vals.each_cons(2) {|a, b| total += (a < b ? -a : a) }
+  total
+end
+
+# Find the FIRST edition number in the string (arabic, spelled, or — fallback — roman).
 # "First of several" is intentional: for a mega-title the primary conference comes first.
 # @param s [String] a title
 # @return [Integer, nil] the edition number, or nil if none found
@@ -137,6 +149,14 @@ def first_ordinal(s)
   cands << [$~.begin(0), TENS_C[$1.downcase] + UNIT[$2.downcase]] if s =~ /\b(#{TENS_C.keys.join("|")})[\s-](#{units})\b/i
   cands << [$~.begin(0), TENS_O[$1.downcase]]                     if s =~ /\b(#{TENS_O.keys.join("|")})\b/i
   cands << [$~.begin(0), UNIT[$1.downcase]]                       if s =~ /\b(#{units})\b/i
+  if cands.empty?   # roman only as a fallback — never lets it beat a real arabic/spelled ordinal
+    s.to_enum(:scan, /\b([IVXLC]{2,})\b/).each do
+      m = Regexp.last_match
+      next if s[0...m.begin(0)] =~ /\b(Part|Volume|Vol|Pt|No|Track|Session|Tier|Type|Class|Grade)\.?\s*\z/i
+      v = roman_to_i(m[1])
+      (cands << [m.begin(0), v]; break) if v && v.between?(2, 399)
+    end
+  end
   cands.min_by {|pos, _| pos }&.last
 end
 
@@ -216,7 +236,7 @@ end
 # @return [String] the name region
 def strip_framing(title, acronym)
   t = title.to_s.strip.sub(/\.\z/, "")
-  t = t.sub(/\A[^,]{0,80},\s+(?=Proceedings\b)/i, "")   # drop a leading tagline ("Forging New Links, Proceedings of the ...")
+  t = t.sub(/\A[^,]{0,80}[,–-]\s+(?=Proceedings\b)/i, "")   # drop a leading tagline ("Forging New Links, Proceedings ..." / "Topic - Proceedings ...")
   t = t.sub(/[,.\s-]+(held as part of|co-located with|part of)\b.*\z/i, "")   # satellite co-location tail
   t = t.sub(/,\s*(Proceedings(,?\s*Part\s+\S+)?|Revised Selected Papers|Companion Volume)\s*\z/i, "")
 
@@ -233,7 +253,7 @@ def strip_framing(title, acronym)
   t = t.strip.sub(/[\s,\-]+\z/, "")
 
   t = t.sub(/\A[A-Z][A-Za-z0-9@\/+'’.\-]*(\s+['’]?\d{2,4})?\s*:\s*/, "")        # "GECCO :" / "SOAP@PLDI 2021:" label
-  t = t.sub(/\A(Joint\s+|Companion to the\s+|Addendum to the\s+)?Proceedings?\s+(of\s+the\s+|of\s+)?/i, "")
+  t = t.sub(/\A(An Adjunct to the\s+|Joint\s+|Companion to the\s+|Addendum to the\s+|Adjunct to the\s+|Short Paper\s+|Combined\s+|Workshop\s+|Companion\s+|Addendum\s+|Adjunct\s+)?Proceedings?\s+(of\s+the\s+|of\s+(?:an?\s+)?)?/i, "")
   t = t.sub(/\A(19|20)\d{2}\s+/, "")                                           # leading bare year
   t = strip_leading_ordinal(t).strip
   t.sub(/\Athe\s+/i, "")
@@ -291,6 +311,21 @@ def build_direct_name(segments)
   (!extra.empty? && extra.last =~ /\band\b/) ? ([name] + extra).join(", ") : name
 end
 
+STOPWORDS = %w[a an the of on in for and to with at by from as or nor but per via].freeze
+# Title-case an all-lowercase (ACM-DL style) name: capitalise each word, but keep interior
+# stopwords lower and leave any word that already has uppercase (acronyms, "iOS") untouched.
+# @param name [String]
+# @return [String]
+def titlecase_lower(name)
+  first = true
+  name.gsub(/\S+/) do |w|
+    lead = first; first = false
+    if w =~ /[A-Z]/ then w
+    elsif !lead && STOPWORDS.include?(w.downcase) then w
+    else w.sub(/[a-z]/) {|c| c.upcase } end
+  end
+end
+
 # Clean up an assembled name, and apply the satellite-prefix rule.
 # @param name [String]
 # @param kind [String]
@@ -298,11 +333,14 @@ end
 # @return [String] the cleaned name
 def tidy_name(name, kind, parent)
   name = name.gsub(/['’]\d{2}\b/, "").gsub(/\s(19|20)\d{2}(?=\s)/, " ")  # drop inline year: "SIGPLAN'95", "ACM 2003"
+  name = name.sub(/[\s,–-]+(19|20)\d{2}\z/, "")                          # trailing year ("... Conference 2013")
   name = name.sub(/[\s,]+(V\.?\s*\d+|Volume\s+\S+)\z/i, "")              # trailing "V.1" / "Volume 2"
   name = name.gsub(/\s*\([A-Z][A-Za-z0-9'’\/+&.\- ]*\)\s*\z/, "") if kind != "joint"  # trailing "(PLDI)"
+  name = name.sub(/\s[-–]\s*[A-Z][A-Za-z0-9&\/+.\-]*\z/, "")            # dangling "- ECCV" left after the year
   name = name.sub(/\s+Companion\z/i, "") if kind == "companion"         # companion name = parent name
   name = name.sub(/\s*[-–:;]+\s*\z/, "")                                # dangling trailing punctuation
   name = name.gsub(/\s{2,}/, " ").strip
+  name = titlecase_lower(name) if name =~ /\A[a-z]/   # ACM-DL lowercase title -> Title Case
   # Topic-only satellite ("Agent Modeling" under conf/aaai) -> "AAAI Workshop on Agent Modeling".
   if kind == "workshop" && parent && !name.empty? && name !~ NAME_TYPE_RE && !name.start_with?(parent)
     name = "#{parent} Workshop on #{name}"
