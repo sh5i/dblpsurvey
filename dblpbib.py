@@ -1,37 +1,35 @@
 #!/usr/bin/env python3
-"""Check a .bib file against a local DBLP database (dblpsurvey's dblp.db).
+"""Check and fix a .bib file against a local DBLP database (dblpsurvey's dblp.db).
 
-For each @article / @inproceedings entry it looks the title up in the database
-and reports discrepancies.  Authoritative fields (author, year, pages, volume,
-number, doi) are treated as "the database is right -- your .bib may be lying";
-venue names (booktitle, journal) are filled in when missing but otherwise left
-as-is, because there is no single canonical venue string and in-document
-consistency matters; a differing booktitle is rewritten to the official
-proceedings name only when --fix-venue is given.
+For each @article / @inproceedings (and arXiv @misc) it looks the title up in the DB
+-- falling back to DOI, then arXiv id -- and proposes changes: authoritative fields
+(author, year, pages, volume, number) corrected from the DB, missing fields filled,
+venue names and a differing DOI offered too.  Nothing is auto-applied: you choose.
 
-  - exact match (normalised title) -> compare fields, warn on mismatch
-  - preprint matched but a published version exists -> suggest an upgrade
-  - no exact match -> offer fuzzy (FTS5) candidates
-  - nothing -> UNKNOWN, hand off to a human / agent
+The fix model is select-then-apply (like `git add -p`).  Every proposed change has a
+stable id `citekey:field` (or `citekey:@` for an arXiv->published whole-entry swap):
 
-Default is read-only reporting.  With --fix the authoritative fields are
-rewritten in place (venue names left as-is, only filled when missing); add
---fix-venue to also rewrite a differing booktitle to the official proceedings
-name.  Run `make format-bib` afterwards to normalise the style.
+  dblpbib refs.bib                       # read-only report (each proposal shows its id)
+  dblpbib refs.bib --plan                # one proposal/line: id <tab> kind <tab> summary
+  dblpbib refs.bib --show ID             # one proposal's full before/after (fzf preview)
+  dblpbib refs.bib --pick                # choose via fzf (preview) / peco, then apply
+  dblpbib refs.bib --plan | fzf -m | dblpbib refs.bib --apply -    # the composable form
+  dblpbib refs.bib --apply key:year,key:pages    # apply named ids
+  dblpbib refs.bib --apply safe          # non-interactive: all confirmed fixes + fills
+  dblpbib refs.bib --add 10.1145/xxxxxxx # fetch an entry from the DB and append it
 
-Usage:
-  dblpbib.py [--db PATH] [--fix] [--json] references.bib
-The database path may also be given via the DBLP_DB environment variable.
-A missing database is treated as "skip" (exit 0) so it never blocks a build.
+The DB path may be given via --db or the DBLP_DB environment variable.  A missing
+database is treated as "skip" (exit 0) so it never blocks a build.
 """
 
 import argparse
-import collections
-import contextlib
 import json
 import os
 import re
+import shlex
+import shutil
 import sqlite3
+import subprocess
 import sys
 import unicodedata
 
@@ -354,15 +352,14 @@ def given_detail(bib_tok, db_tok):
     'differ'     = the .bib lacks something DBLP spells out (or they conflict)."""
     return "bib_richer" if all(_covered(t, bib_tok) for t in db_tok) else "differ"
 
-def compare(con, entry, row, short=False, fix_venue=False):
+def compare(con, entry, row, short=False):
     """Classify each field difference into one of three tiers:
-      fills   -- field absent from the .bib; safe to add          (--fix adds)
-      fixes   -- the .bib is wrong in a direction DBLP corrects    (--fix overwrites)
-      reviews -- a real difference, but auto-fixing is unsafe      (warn only)
-                 (direction unclear / the .bib is more detailed / not comparable)
-    Each review carries a note explaining why it needs a human.
-    With fix_venue, a differing booktitle is treated as a fix (official venue name)
-    rather than a review."""
+      fills   -- field absent from the .bib; safe to add
+      fixes   -- the .bib is wrong in a direction DBLP corrects
+      reviews -- a real difference whose direction is the author's call (venue name,
+                 a differing DOI, author/given-name detail, ambiguous pages)
+    Each review carries a note. process_entry turns all three into selectable proposals;
+    the tier only becomes the proposal's `kind` (fix / fill / venue / review)."""
     fixes, reviews, fills = [], [], []
 
     # author
@@ -422,17 +419,15 @@ def compare(con, entry, row, short=False, fix_venue=False):
         elif strip_doi(cur).lower() != db.lower():
             reviews.append(("doi", cur, db, "DOI differs from DBLP — check (edition / preprint?)"))
 
-    # venue name: fill if missing, else recommend the official name as a REVIEW (never
-    # auto-corrected -- the venue string has no single right form and in-document
-    # consistency is the author's call).
+    # venue name: fill if missing, else propose the official name as a REVIEW-tier
+    # proposal (the venue string has no single right form, so the author chooses).
     if entry.type == "article":
         cur, db = entry.get("journal"), row["journal"]
         if db:
             if not cur:
                 fills.append(("journal", db))
             elif _vn(cur) != _vn(db):
-                reviews.append(("journal", cur, db,
-                                "consider the official journal name (kept as is)"))
+                reviews.append(("journal", cur, db, "official journal name"))
     elif row["type"] == "inproceedings":
         name, _kind, accepted, acronym = venue_forms(con, row)
         target = "Proc. {%s}" % acronym if (short and acronym) else name
@@ -443,12 +438,8 @@ def compare(con, entry, row, short=False, fix_venue=False):
             if not cur:
                 fills.append(("booktitle", target))
             elif _vn(cur) not in accepted:
-                if fix_venue:
-                    fixes.append(("booktitle", cur, target))   # rewrite to the official name
-                else:
-                    note = ("consider the short venue form" if short
-                            else "consider the official venue name") + " (kept as is)"
-                    reviews.append(("booktitle", cur, target, note))
+                reviews.append(("booktitle", cur, target,
+                                "short venue form" if short else "official venue name"))
 
     return fixes, reviews, fills
 
@@ -508,9 +499,6 @@ def add_entries(con, args, text, entries, color):
 
 # --- per-entry processing -----------------------------------------------------
 
-# Run-wide options derived from the CLI, threaded into process_entry.
-Opts = collections.namedtuple("Opts", "do_fix aggressive fix_venue short allow")
-
 def match_record(con, e):
     """Locate the DBLP record(s) for an entry: try the title, then the DOI, then an
     arXiv id; if only a preprint matched by id, look for a published sibling by its real
@@ -532,106 +520,226 @@ def match_record(con, e):
         pub, _ = lookup_exact(con, pre[0]["title"])
     return pub, pre, matched_by
 
-def process_entry(con, e, opts):
-    """Classify one .bib entry against DBLP. Returns (finding, edits): `finding` is a
-    result dict (status plus fixes/reviews/fills, or fuzzy candidates), or None if the
-    entry is skipped; `edits` are the surgical (start, end, repl) tuples --fix applies."""
+def _edit_for(e, field, value):
+    """Surgical edit that sets `field` to `value`: replace the value span if the field is
+    present, else insert a new field after the last one."""
+    if field in e.fields:
+        f = e.fields[field]
+        return (f.start, f.end, "{%s}" % value)
+    pos = e.last_field_end()
+    return (pos, pos, ",\n  %s = {%s}" % (field, value))
+
+def _proposal(e, kind, field, bib, dblp, note=""):
+    return dict(id="%s:%s" % (e.key, field), kind=kind, field=field, bib=bib, dblp=dblp,
+                note=note, edit=_edit_for(e, field, dblp))
+
+def process_entry(con, e, short=False):
+    """Classify one .bib entry against DBLP. Returns a finding dict, or None to skip.
+    A matched finding carries `proposals`: each a selectable change with a stable id
+    (`citekey:field`, or `citekey:@` for an arXiv->published whole-entry swap), a `kind`
+    (fix / fill / venue / review / upgrade), before/after values and a surgical edit.
+    `status` summarises the finding; an unmatched one carries fuzzy `candidates`."""
     if e.type == "misc" and not is_arxiv(e):
-        return None, []                       # non-paper @misc (datasets, manuals): skip
+        return None                            # non-paper @misc (datasets, manuals): skip
     title = e.get("title")
     pub, pre, matched_by = match_record(con, e)
 
     if not (pub or pre):                       # no match -> fuzzy candidates, else unknown
-        if opts.allow is not None:             # --key scopes to matched entries only
-            return None, []
         cands = fuzzy(con, title)
         return dict(key=e.key, status=("fuzzy" if cands else "unknown"), title=title,
+                    matched_by=None, proposals=[],
                     candidates=[dict(year=c["year"], venue=c["venue"], title=c["title"])
-                                for c in cands]), []
+                                for c in cands])
 
-    # An arXiv-form entry that is now formally published -> suggest a whole-entry swap.
+    # An arXiv-form entry that is now formally published -> a whole-entry swap proposal.
     published = suggest_publication(e, pub, pre)
-    if published and opts.allow is None:
-        vshort = published["booktitle"] or published["journal"]
+    if published:
         kind = venue_forms(con, published)[1]
         tag = "" if kind in ("main", "journal") else " [%s]" % kind
-        upgrade = "%s %s%s (%s)" % (vshort, published["year"], tag, published["key"])
-        replacement = to_bibtex(con, e.key, published, opts.short)
-        edits = [(e.start, e.body_close + 1, replacement)] if opts.aggressive else []
+        vshort = published["booktitle"] or published["journal"]
+        repl = to_bibtex(con, e.key, published, short)
+        prop = dict(id="%s:@" % e.key, kind="upgrade", field="@entry", bib="@" + e.type,
+                    dblp="%s %s%s (%s)" % (vshort, published["year"], tag, published["key"]),
+                    note="now published — replace the whole entry",
+                    replacement=repl, edit=(e.start, e.body_close + 1, repl))
         return dict(key=e.key, status="upgrade", title=title, matched_by=matched_by,
-                    dblp=published["key"], venue=published["venue"],
-                    year=published["year"], fixes=[], reviews=[], fills=[],
-                    upgrade=upgrade, replacement=replacement), edits
+                    proposals=[prop], candidates=[])
 
     # Otherwise verify against the canonical record (published if available, else arXiv).
     row = pub[0] if pub else pre[0]
-    fixes, reviews, fills = compare(con, e, row, opts.short, opts.fix_venue)
+    fixes, reviews, fills = compare(con, e, row, short)
     if matched_by in ("doi", "arxiv"):         # matched by id -> the title disagrees
         reviews.insert(0, ("title", title, row["title"],
                            "matched by %s but the title differs — an arXiv title may have "
                            "changed across versions, or a typo / wrong key" % matched_by.upper()))
-    if opts.allow is not None:                  # --key: keep only the named fields
-        fixes = [d for d in fixes if d[0] in opts.allow]
-        reviews = [d for d in reviews if d[0] in opts.allow]
-        fills = [d for d in fills if d[0] in opts.allow]
-    status = ("mismatch" if fixes else "review" if reviews
-              else "incomplete" if fills else "ok")
-    finding = dict(key=e.key, status=status, title=title, matched_by=matched_by,
-                   dblp=row["key"], venue=row["venue"], year=row["year"],
-                   fixes=[dict(field=f, bib=a, dblp=b) for f, a, b in fixes],
-                   reviews=[dict(field=f, bib=a, dblp=b, note=n) for f, a, b, n in reviews],
-                   fills=[dict(field=f, dblp=b) for f, b in fills],
-                   upgrade=None, replacement=None)
-    edits = []
-    if opts.do_fix:                            # apply fixes + fills (already key-filtered)
-        for f, _cur, dbval in fixes:
-            fld = e.fields[f]
-            edits.append((fld.start, fld.end, "{%s}" % dbval))
-        for f, dbval in fills:
-            edits.append((e.last_field_end(), e.last_field_end(), ",\n  %s = {%s}" % (f, dbval)))
-    return finding, edits
+    props = [_proposal(e, "fix", f, a, b) for f, a, b in fixes]
+    props += [_proposal(e, "venue" if f in ("booktitle", "journal") else "review", f, a, b, n)
+              for f, a, b, n in reviews]
+    props += [_proposal(e, "fill", f, "", b) for f, b in fills]
+    status = ("mismatch" if any(p["kind"] == "fix" for p in props)
+              else "review" if any(p["kind"] in ("review", "venue") for p in props)
+              else "incomplete" if props else "ok")
+    return dict(key=e.key, status=status, title=title, matched_by=matched_by,
+                proposals=props, candidates=[])
+
+def derive(con, entries, short=False):
+    """All findings for the parsed entries (skipped entries dropped)."""
+    return [f for f in (process_entry(con, e, short) for e in entries) if f is not None]
+
+def all_proposals(findings):
+    return [p for f in findings for p in f.get("proposals", [])]
+
+# --- present / select / apply -------------------------------------------------
+
+def _colorer(color):
+    return ((lambda code, s: "\033[%sm%s\033[0m" % (code, s)) if color
+            else (lambda code, s: s))
+
+def _trunc(s, n=90):
+    s = " ".join(str(s).split())
+    return s if len(s) <= n else s[:n - 1] + "…"
+
+def _summary(p):
+    if p["kind"] == "fill":
+        return "+ %s" % p["dblp"]
+    return "%s → %s" % (p["bib"] or "(empty)", p["dblp"])
+
+def _read_ids(spec):
+    """IDs for --apply: '-' reads the leading token of each stdin line (fzf/peco output),
+    otherwise a comma-separated list."""
+    if spec == "-":
+        return [re.split(r"\s+", ln.strip(), 1)[0] for ln in sys.stdin if ln.strip()]
+    return [s.strip() for s in spec.split(",") if s.strip()]
+
+def _apply_ids(text, props, ids):
+    """Apply the proposals named by `ids`. Returns (new_text, applied, missing). If a
+    whole-entry upgrade is chosen, its field-level siblings are dropped (they'd conflict)."""
+    pmap = {p["id"]: p for p in props}
+    chosen = [pmap[i] for i in ids if i in pmap]
+    missing = [i for i in ids if i not in pmap]
+    upgraded = {p["id"].rsplit(":", 1)[0] for p in chosen if p["kind"] == "upgrade"}
+    chosen = [p for p in chosen
+              if p["kind"] == "upgrade" or p["id"].rsplit(":", 1)[0] not in upgraded]
+    return apply_fixes(text, [p["edit"] for p in chosen]), chosen, missing
+
+def cmd_plan(findings):
+    """One selectable proposal per line: id <TAB> kind <TAB> summary. Plain text so it
+    pipes cleanly into fzf/peco (the id is the first field, read back by --apply/preview)."""
+    for p in all_proposals(findings):
+        print("%s\t%s\t%s" % (p["id"], p["kind"], _trunc(_summary(p))))
+    return 0
+
+def cmd_show(findings, idstr, color):
+    """Full before/after for one proposal (used as the fzf --preview; also handy alone)."""
+    c = _colorer(color)
+    pmap = {p["id"]: (f, p) for f in findings for p in f.get("proposals", [])}
+    if idstr not in pmap:
+        print("no such proposal: %s" % idstr)
+        return 1
+    f, p = pmap[idstr]
+    kc = KIND_C.get(p["kind"], "0")
+    print("%s  %s" % (c("1", "[%s]" % f["key"]), f["title"]))
+    print("%s %s%s" % (c(kc + ";1", p["kind"]), c("1", p["field"]),
+                       "  " + c("90", p["note"]) if p["note"] else ""))
+    if p["kind"] == "upgrade":
+        for line in p["replacement"].splitlines():
+            print("  " + c("34", line))
+    else:
+        if p["bib"]:
+            print("  - bib : %s" % c("31", p["bib"]))
+        print("  + dblp: %s" % c("32", p["dblp"]))
+    return 0
+
+def _write_or_echo(text, applied, bib, dry_run):
+    if dry_run:
+        sys.stdout.write(text)
+    elif applied:
+        with open(bib, "w", encoding="utf-8") as f:
+            f.write(text)
+
+def cmd_apply(con, entries, text, short, spec, bib, dry_run, color):
+    c = _colorer(color)
+    props = all_proposals(derive(con, entries, short))
+    if spec in ("safe", "all"):
+        ids = [p["id"] for p in props if spec == "all" or p["kind"] in ("fix", "fill")]
+    else:
+        ids = _read_ids(spec)
+    new_text, applied, missing = _apply_ids(text, props, ids)
+    log = sys.stderr if dry_run else sys.stdout
+    for p in applied:
+        print(c("32", "✓ %s" % p["id"]), file=log)
+    for m in missing:
+        print(c("33", "• no such proposal, skipped: %s" % m), file=log)
+    if not applied:
+        print(c("90", "nothing applied"), file=log)
+    _write_or_echo(new_text, applied, bib, dry_run)
+    return 0
+
+def cmd_pick(con, entries, text, short, bib, db, dry_run, color):
+    props = all_proposals(derive(con, entries, short))
+    if not props:
+        sys.stderr.write("nothing to pick (no proposals)\n")
+        return 0
+    plan = "".join("%s\t%s\t%s\n" % (p["id"], p["kind"], _trunc(_summary(p))) for p in props)
+    picker = shutil.which("fzf") or shutil.which("peco")
+    if not picker:
+        sys.stderr.write("--pick needs fzf or peco; or compose: "
+                         "dblpbib BIB --plan | <picker> | dblpbib BIB --apply -\n")
+        return 1
+    if os.path.basename(picker) == "fzf":
+        prog = "%s %s" % (shlex.quote(sys.executable), shlex.quote(os.path.abspath(__file__)))
+        preview = "%s %s%s --show {1}" % (prog, shlex.quote(bib),
+                                          (" --db " + shlex.quote(db)) if db else "")
+        cmd = [picker, "-m", "--delimiter", "\t", "--with-nth", "2,3", "--preview", preview]
+    else:
+        cmd = [picker]
+    sel = subprocess.run(cmd, input=plan, capture_output=True, text=True)
+    ids = [re.split(r"\s+", ln.strip(), 1)[0] for ln in sel.stdout.splitlines() if ln.strip()]
+    if not ids:
+        sys.stderr.write("no selection\n")
+        return 0
+    new_text, applied, _ = _apply_ids(text, props, ids)
+    c = _colorer(color)
+    for p in applied:
+        print(c("32", "✓ %s" % p["id"]), file=(sys.stderr if dry_run else sys.stdout))
+    _write_or_echo(new_text, applied, bib, dry_run)
+    return 0
 
 # --- main ---------------------------------------------------------------------
 
 def main():
-    ap = argparse.ArgumentParser(description="Check a .bib file against dblp.db")
+    ap = argparse.ArgumentParser(description="Check/fix a .bib file against dblp.db")
     ap.add_argument("bib")
     ap.add_argument("--db", default=os.environ.get("DBLP_DB", ""),
                     help="path to dblp.db (or set DBLP_DB)")
-    ap.add_argument("--fix", nargs="?", const="normal", default=None, metavar="LEVEL",
-                    help="apply fixes in place. --fix: confirmed field fixes and fills "
-                         "only. --fix=aggressive: also rewrite whole entries (e.g. swap "
-                         "an arXiv preprint for its published version, changing @type)")
-    ap.add_argument("--key", default="", metavar="FIELDS",
-                    help="restrict field-level fixes to a comma-separated list, "
-                         "e.g. --key=doi,pages (default: all fields)")
+    ap.add_argument("--plan", action="store_true",
+                    help="list selectable proposals, one per line "
+                         "(id <tab> kind <tab> summary); pipe into fzf/peco")
+    ap.add_argument("--show", metavar="ID", default=None,
+                    help="show one proposal's full before/after (used as the fzf preview)")
+    ap.add_argument("--apply", metavar="IDS", nargs="?", const="-", default=None,
+                    help="apply proposals: a comma-separated id list; '-' (or no value) to "
+                         "read ids from stdin (fzf/peco output); or 'safe' (all fix+fill) / 'all'")
+    ap.add_argument("--pick", action="store_true",
+                    help="choose proposals interactively via fzf (with preview) or peco, then apply")
     ap.add_argument("--add", action="append", default=[], metavar="[KEY=]ID",
                     help="add an entry fetched from the DB by DOI / arXiv id / DBLP key "
                          "and append it to the .bib (repeatable; KEY sets the cite key, "
                          "otherwise one is generated). With -n, print to stdout instead.")
     ap.add_argument("--short", action="store_true",
-                    help="recommend/write venue names in short form 'Proc. {ACRONYM}' "
-                         "instead of the full official proceedings title")
-    ap.add_argument("--fix-venue", action="store_true",
-                    help="with --fix, also rewrite a differing booktitle to the official "
-                         "proceedings name (venue strings are otherwise left to the author)")
+                    help="use the short venue form 'Proc. {ACRONYM}' for venue proposals "
+                         "and added entries, instead of the full official proceedings title")
     ap.add_argument("-n", "--dry-run", action="store_true",
-                    help="with --fix, write the fixed .bib to stdout instead of editing "
-                         "the file (the report goes to stderr)")
-    ap.add_argument("--json", action="store_true", help="emit findings as JSON")
+                    help="with --apply/--pick, write the result to stdout instead of the file")
+    ap.add_argument("--json", action="store_true", help="emit findings as JSON (report mode)")
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="also list entries that are OK (hidden by default)")
     ap.add_argument("--no-color", action="store_true", help="disable ANSI colours")
     args = ap.parse_args()
 
-    do_fix = args.fix is not None
-    aggressive = do_fix and args.fix.lower().startswith("agg")   # --fix=aggressive
-    fix_venue = do_fix and args.fix_venue                        # --fix --fix-venue
-    # In dry-run the fixed .bib owns stdout, so the report is routed to stderr.
-    report_stream = sys.stderr if (do_fix and args.dry_run) else sys.stdout
-    color = (not args.no_color) and report_stream.isatty() and "NO_COLOR" not in os.environ
-    # --key limits which fields are considered at all (report and fix); None = all.
-    allow = set(s.strip().lower() for s in args.key.split(",") if s.strip()) or None
+    base = (not args.no_color) and "NO_COLOR" not in os.environ
+    # --show feeds the fzf preview pane (not a tty), which renders ANSI -> keep colour there.
+    color = base and (args.show is not None or sys.stdout.isatty())
 
     if not args.db or not os.path.exists(args.db):
         sys.stderr.write(
@@ -647,78 +755,67 @@ def main():
 
     if args.add:
         return add_entries(con, args, text, entries, color)
+    if args.show is not None:
+        return cmd_show(derive(con, entries, args.short), args.show, color)
+    if args.plan:
+        return cmd_plan(derive(con, entries, args.short))
+    if args.apply is not None:
+        return cmd_apply(con, entries, text, args.short, args.apply, args.bib,
+                         args.dry_run, color)
+    if args.pick:
+        return cmd_pick(con, entries, text, args.short, args.bib, args.db,
+                        args.dry_run, color)
 
-    opts = Opts(do_fix, aggressive, fix_venue, args.short, allow)
-    findings, edits = [], []
+    # default: read-only report
+    findings = derive(con, entries, args.short)
     counts = dict(ok=0, mismatch=0, review=0, upgrade=0, incomplete=0, fuzzy=0, unknown=0)
-    for e in entries:
-        finding, ed = process_entry(con, e, opts)
-        if finding is None:
-            continue
-        findings.append(finding)
-        counts[finding["status"]] += 1
-        edits.extend(ed)
-
-    new_text = apply_fixes(text, edits) if (do_fix and edits) else text
-    if do_fix and edits and not args.dry_run:
-        with open(args.bib, "w", encoding="utf-8") as f:
-            f.write(new_text)
-
+    for f in findings:
+        counts[f["status"]] += 1
     if args.json:
         print(json.dumps(dict(summary=counts, findings=findings),
-                         ensure_ascii=False, indent=2), file=report_stream)
+                         ensure_ascii=False, indent=2))
     else:
-        with contextlib.redirect_stdout(report_stream):
-            report(findings, counts, do_fix, color, args.verbose)
+        report(findings, counts, color, args.verbose)
+    return 1 if counts["mismatch"] else 0       # CI gate: confirmed errors fail
 
-    if do_fix and args.dry_run:              # emit the would-be file to stdout
-        sys.stdout.write(new_text)
-
-    # In report mode, exit non-zero on confirmed errors (CI gate); reviews/upgrades
-    # are advisory.  In --fix mode we just performed the action, so exit 0.
-    return 0 if do_fix else (1 if counts["mismatch"] else 0)
-
-# status -> (emoji, label, ANSI colour code)
+# status -> (emoji, label, ANSI colour code); proposal kind -> ANSI colour code
 STYLE = dict(
     ok=("✅", "OK", "32"), mismatch=("❌", "MISMATCH", "31"),
     review=("⚠️ ", "REVIEW", "33"), upgrade=("⬆️ ", "UPGRADE", "34"),
     incomplete=("➕", "INCOMPLETE", "36"), fuzzy=("🔍", "FUZZY", "35"),
     unknown=("❓", "UNKNOWN", "90"))
+KIND_C = dict(fix="31", venue="33", review="33", fill="36", upgrade="34")
 
-def report(findings, counts, fixed, color, verbose):
-    def c(code, s):
-        return "\033[%sm%s\033[0m" % (code, s) if color else s
+def report(findings, counts, color, verbose):
+    c = _colorer(color)
     for f in findings:
         if f["status"] == "ok" and not verbose:    # OK entries shown only with -v
             continue
         emoji, label, code = STYLE[f["status"]]
         print("%s %s  %s" % (emoji, c(code + ";1", label), c("1", "[%s]" % f["key"])))
         print("   %s" % f["title"])                       # full title, never truncated
-        for d in f.get("fixes", []):                       # red: will be corrected
-            print("   %s %s" % (c("31", "✗"), c("1", d["field"])))
-            print("       bib : %s" % c("31", d["bib"]))
-            print("       dblp: %s" % c("32", d["dblp"]))
-        for d in f.get("reviews", []):                     # yellow: human decides
-            print("   %s %s  %s" % (c("33", "⚠"), c("1", d["field"]), c("33", d["note"])))
-            print("       bib : %s" % d["bib"])
-            print("       dblp: %s" % d["dblp"])
-        for fl in f.get("fills", []):                      # cyan: missing, can be added
-            print("   %s %s %s" % (c("36", "+"), c("1", fl["field"]), c("90", "(missing)")))
-            print("       dblp: %s" % c("32", fl["dblp"]))
-        if f.get("upgrade"):
-            print("   %s" % c("34", "⬆ now published: %s — consider replacing with:"
-                                    % f["upgrade"]))
-            for line in (f.get("replacement") or "").splitlines():
-                print("       %s" % c("34", line))
+        for p in f.get("proposals", []):                  # each proposal shows its id
+            kc = KIND_C.get(p["kind"], "0")
+            print("   %s %s  %s%s" % (c(kc, "•"), c("1", p["field"]), c("90", p["id"]),
+                                      "  " + c(kc, p["note"]) if p["note"] else ""))
+            if p["kind"] == "upgrade":
+                for line in (p.get("replacement") or "").splitlines():
+                    print("       %s" % c("34", line))
+            else:
+                if p["bib"]:
+                    print("       bib : %s" % c("31", p["bib"]))
+                print("       dblp: %s" % c("32", p["dblp"]))
         for cand in f.get("candidates", []):
             print("   %s %s %-8s %s"
                   % (c("90", "~"), cand["year"], cand["venue"], cand["title"]))
         if f["status"] in ("fuzzy", "unknown"):
             print(c("90", "     (no exact match — may be out of DB scope; check manually)"))
-    s, tail = counts, " (fixed in place)" if fixed else ""
-    parts = [("%d %s" % (s[k], STYLE[k][1].lower())) for k in
+    parts = [("%d %s" % (counts[k], STYLE[k][1].lower())) for k in
              ("ok", "mismatch", "review", "upgrade", "incomplete", "fuzzy", "unknown")]
-    print("\n%s %s%s" % (c("1", "summary:"), ", ".join(parts), tail))
+    print("\n%s %s" % (c("1", "summary:"), ", ".join(parts)))
+    if any(counts[k] for k in ("mismatch", "review", "incomplete", "upgrade")):
+        print(c("90", "  choose fixes: dblpbib %s --pick   (or --plan | fzf -m | … --apply -)"
+                      % "BIB"))
 
 if __name__ == "__main__":
     sys.exit(main())

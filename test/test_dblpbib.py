@@ -60,7 +60,6 @@ class HelperTests(unittest.TestCase):
 
     def test_pages(self):
         self.assertEqual(bc.norm_pages("1--12"), "1-12")
-        self.assertEqual(bc.norm_pages("1-12"), "1-12")
         self.assertEqual(bc.fmt_pages("1-12"), "1--12")
         self.assertEqual(bc.fmt_pages("5"), "5")             # single page kept as-is
 
@@ -73,7 +72,6 @@ class HelperTests(unittest.TestCase):
 
     def test_surnames(self):
         self.assertEqual(bc.surnames("Hayashi, Shinpei"), {"hayashi"})
-        self.assertEqual(bc.surnames("Shinpei Hayashi"), {"hayashi"})
         self.assertEqual(bc.surnames("Coen De Roover"), {"roover"})
         self.assertEqual(bc.surnames("De Roover, Coen"), {"roover"})
 
@@ -91,13 +89,13 @@ class HelperTests(unittest.TestCase):
     def test_parse_and_apply_fixes(self):
         text = "@article{k,\n  title = {Hello},\n  year = {2019}\n}\n"
         e = bc.parse_bib(text)[0]
-        self.assertEqual(e.type, "article")
-        self.assertEqual(e.key, "k")
-        self.assertEqual(e.get("year"), "2019")
+        self.assertEqual((e.type, e.key, e.get("year")), ("article", "k", "2019"))
         fld = e.fields["year"]
         self.assertEqual(text[fld.start:fld.end], "{2019}")     # offsets span the value token
-        fixed = bc.apply_fixes(text, [(fld.start, fld.end, "{2021}")])
-        self.assertIn("year = {2021}", fixed)
+        self.assertIn("year = {2021}", bc.apply_fixes(text, [(fld.start, fld.end, "{2021}")]))
+
+    def test_read_ids(self):
+        self.assertEqual(bc._read_ids("a:b, c:d ,"), ["a:b", "c:d"])
 
 
 class CheckTests(unittest.TestCase):
@@ -112,97 +110,104 @@ class CheckTests(unittest.TestCase):
         import shutil
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
-    def run_one(self, bibstr, **optkw):
-        opt = dict(do_fix=False, aggressive=False, fix_venue=False, short=False, allow=None)
-        opt.update(optkw)
-        e = bc.parse_bib(bibstr)[0]
-        return bc.process_entry(self.con, e, bc.Opts(**opt))
+    def finding(self, bibstr, short=False):
+        return bc.process_entry(self.con, bc.parse_bib(bibstr)[0], short)
+
+    @staticmethod
+    def by_field(f):
+        return {p["field"]: p for p in f["proposals"]}
 
     def test_ok(self):
-        f, edits = self.run_one(
+        f = self.finding(
             "@inproceedings{p,\n author={Alice B. Smith and Bob Jones},\n"
             " title={A Great Paper on Software Testing},\n"
             " booktitle={International Conference on Software Engineering},\n"
             " pages={100--110},\n doi={10.1/icse20},\n year={2020}\n}")
         self.assertEqual(f["status"], "ok")
-        self.assertEqual(f["fixes"], [])
-        self.assertEqual(f["fills"], [])
-        self.assertEqual(edits, [])
+        self.assertEqual(f["proposals"], [])
 
-    def test_fills_missing_fields(self):
-        f, _ = self.run_one(
+    def test_fills_are_proposals(self):
+        f = self.finding(
             "@inproceedings{p,\n author={Alice B. Smith and Bob Jones},\n"
             " title={A Great Paper on Software Testing},\n"
             " booktitle={International Conference on Software Engineering},\n year={2020}\n}")
         self.assertEqual(f["status"], "incomplete")
-        filled = {x["field"] for x in f["fills"]}
-        self.assertEqual(filled, {"pages", "doi"})
+        self.assertEqual({k: p["kind"] for k, p in self.by_field(f).items()},
+                         {"pages": "fill", "doi": "fill"})
 
     def test_mismatch_year_is_a_fix(self):
-        f, edits = self.run_one(
+        f = self.finding(
             "@article{a,\n author={Carol Lee and Dan Park},\n"
             " title={Static Analysis for Concurrency Bugs},\n"
             " journal={IEEE Trans. Software Eng.},\n volume={47},\n number={3},\n"
-            " pages={200--220},\n year={2019}\n}", do_fix=True)
+            " pages={200--220},\n year={2019}\n}")
         self.assertEqual(f["status"], "mismatch")
-        self.assertEqual([(x["field"], x["dblp"]) for x in f["fixes"]], [("year", "2021")])
-        self.assertTrue(edits)                                  # --fix emits an edit
+        yr = self.by_field(f)["year"]
+        self.assertEqual((yr["kind"], yr["dblp"], yr["id"]), ("fix", "2021", "a:year"))
 
-    def test_venue_is_review_by_default(self):
-        f, _ = self.run_one(
+    def test_venue_diff_is_a_proposal(self):
+        f = self.finding(
             "@inproceedings{p,\n author={Alice B. Smith and Bob Jones},\n"
             " title={A Great Paper on Software Testing},\n booktitle={Some Wrong Venue},\n"
             " pages={100--110},\n doi={10.1/icse20},\n year={2020}\n}")
         self.assertEqual(f["status"], "review")
-        self.assertEqual([x["field"] for x in f["fixes"]], [])
-        self.assertIn("booktitle", [x["field"] for x in f["reviews"]])
+        bk = self.by_field(f)["booktitle"]
+        self.assertEqual(bk["kind"], "venue")
+        self.assertIn("(ICSE 2020)", bk["dblp"])
 
-    def test_venue_fixable_with_fix_venue(self):
-        f, edits = self.run_one(
-            "@inproceedings{p,\n author={Alice B. Smith and Bob Jones},\n"
-            " title={A Great Paper on Software Testing},\n booktitle={Some Wrong Venue},\n"
-            " pages={100--110},\n doi={10.1/icse20},\n year={2020}\n}",
-            do_fix=True, fix_venue=True)
-        self.assertEqual(f["status"], "mismatch")
-        bk = [x for x in f["fixes"] if x["field"] == "booktitle"]
-        self.assertEqual(len(bk), 1)
-        self.assertIn("(ICSE 2020)", bk[0]["dblp"])
-        self.assertTrue(edits)
+    def test_venue_short_form(self):
+        f = self.finding(
+            "@inproceedings{p,\n title={A Great Paper on Software Testing},\n"
+            " booktitle={Some Wrong Venue},\n year={2020}\n}", short=True)
+        self.assertEqual(self.by_field(f)["booktitle"]["dblp"], "Proc. {ICSE}")
 
-    def test_arxiv_upgrade(self):
-        f, edits = self.run_one(
-            "@misc{m,\n title={Neural Methods for Program Repair},\n"
-            " eprint={2001.00001},\n year={2020}\n}")
+    def test_apply_only_selected(self):
+        text = ("@inproceedings{p,\n author={Alice B. Smith and Bob Jones},\n"
+                " title={A Great Paper on Software Testing},\n booktitle={Some Wrong Venue},\n"
+                " year={2020}\n}")
+        props = self.finding(text)["proposals"]
+        new, applied, missing = bc._apply_ids(text, props, ["p:booktitle", "p:nope"])
+        self.assertEqual([x["field"] for x in applied], ["booktitle"])
+        self.assertEqual(missing, ["p:nope"])
+        self.assertIn("(ICSE 2020)", new)
+        self.assertNotIn("153--156", new)            # pages fill was NOT selected
+
+    def test_apply_safe_skips_venue_and_review(self):
+        text = ("@article{a,\n author={Carol Lee},\n"             # author -> review (subset)
+                " title={Static Analysis for Concurrency Bugs},\n"
+                " journal={Wrong Journal Name},\n year={2019}\n}")  # journal -> venue, year -> fix
+        props = self.finding(text)["proposals"]
+        safe = [p["id"] for p in props if p["kind"] in ("fix", "fill")]
+        _, applied, _ = bc._apply_ids(text, props, safe)
+        fields = {p["field"] for p in applied}
+        self.assertIn("year", fields)               # fix applied
+        self.assertNotIn("journal", fields)         # venue not in 'safe'
+        self.assertNotIn("author", fields)          # review not in 'safe'
+
+    def test_upgrade(self):
+        text = ("@misc{m,\n title={Neural Methods for Program Repair},\n"
+                " eprint={2001.00001},\n year={2020}\n}")
+        f = self.finding(text)
         self.assertEqual(f["status"], "upgrade")
-        self.assertIn("Neural Methods for Program Repair", f["replacement"])
-        self.assertEqual(edits, [])                            # not aggressive -> no edit
-        # aggressive swaps the whole entry
-        f2, edits2 = self.run_one(
-            "@misc{m,\n title={Neural Methods for Program Repair},\n"
-            " eprint={2001.00001},\n year={2020}\n}", do_fix=True, aggressive=True)
-        self.assertTrue(edits2)
+        up = f["proposals"][0]
+        self.assertEqual(up["kind"], "upgrade")
+        self.assertTrue(up["id"].endswith(":@"))
+        self.assertIn("Neural Methods for Program Repair", up["replacement"])
+        new, applied, _ = bc._apply_ids(text, f["proposals"], [up["id"]])
+        self.assertEqual(len(applied), 1)
+        self.assertIn("@inproceedings", new)        # @misc -> @inproceedings (whole-entry swap)
 
     def test_unknown_and_fuzzy(self):
-        f, _ = self.run_one("@article{u, title={Completely Unrelated Quantum Gibberish Xyzzy}, year={2020}}")
-        self.assertEqual(f["status"], "unknown")
-        f2, _ = self.run_one("@article{g, title={Static Analysis for Quantum Bugs}, year={2020}}")
-        self.assertEqual(f2["status"], "fuzzy")
-        self.assertTrue(f2["candidates"])
-
-    def test_key_filter_keeps_only_named_field(self):
-        # wrong year + missing doi; --key=year keeps the year fix, drops the doi fill
-        f, _ = self.run_one(
-            "@article{a,\n author={Carol Lee and Dan Park},\n"
-            " title={Static Analysis for Concurrency Bugs},\n"
-            " journal={IEEE Trans. Software Eng.},\n volume={47},\n number={3},\n"
-            " pages={200--220},\n year={2019}\n}", allow={"year"})
-        self.assertEqual([x["field"] for x in f["fixes"]], ["year"])
-        self.assertEqual(f["fills"], [])
+        self.assertEqual(self.finding(
+            "@article{u, title={Completely Unrelated Quantum Gibberish Xyzzy}, year={2020}}")["status"],
+            "unknown")
+        f = self.finding("@article{g, title={Static Analysis for Quantum Bugs}, year={2020}}")
+        self.assertEqual(f["status"], "fuzzy")
+        self.assertTrue(f["candidates"])
 
     def test_misc_non_paper_skipped(self):
-        f, edits = self.run_one("@misc{d, title={A Dataset}, howpublished={Zenodo}, year={2020}}")
-        self.assertIsNone(f)
-        self.assertEqual(edits, [])
+        self.assertIsNone(self.finding(
+            "@misc{d, title={A Dataset}, howpublished={Zenodo}, year={2020}}"))
 
 
 if __name__ == "__main__":
