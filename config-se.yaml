@@ -11,8 +11,10 @@ journals:
   - software
   # ACM Computing Surveys
   - csur
-  # IEEE Access
-  - access
+  # ACM Transactions on Programming Languages and Systems
+  - toplas
+  # The Art, Science, and Engineering of Programming (<Programming>)
+  - programming
 
   # Journal of Systems and Software
   - jss
@@ -20,6 +22,10 @@ journals:
   - infsof
   # International Journal on Software Tools for Technology Transfer
   - sttt
+  # Software: Practice and Experience
+  - spe
+  # Software Quality Journal
+  - sqj
 
   # Empirical Software Engineering
   - ese
@@ -58,6 +64,8 @@ conferences:
   - issta
   # International Symposium on Empirical Software Engineering and Measurement
   - esem
+  # Evaluation and Assessment in Software Engineering
+  - ease
   # IEEE International Conference on Software Maintenance [and Evolution]
   - icsm
   # IEEE International Conference on Software Analysis, Evolution, and Reengineering
@@ -70,6 +78,8 @@ conferences:
   - scam
   # Mining Software Repositories
   - msr
+  # Predictive Models and Data Analytics in Software Engineering
+  - promise
   # IEEE/ACM International Conference on Connected Health: Applications, Systems and Engineering Technologies
   - chase
   # International Conference on Technical Debt
@@ -82,6 +92,8 @@ conferences:
   - vissoft
   # Software Visualization
   - softvis
+  # Visual Languages and Human-Centric Computing (VL/HCC)
+  - vl
   # International Conference on Software Testing, Verification, and Validation
   - icst
   # Search Based Software Engineering
@@ -103,8 +115,8 @@ conferences:
   - models
   # Software Product Lines
   - splc
-  # Asia-Pacific Conference on Conceptual Modelling
-  - apccm
+  # International Conference on Software Reuse
+  - icsr
   # International Conference on Software Architecture
   - icsa
   # Working IEEE/IFIP Conference on Software Architecture
@@ -115,6 +127,19 @@ conferences:
   - qosa
   # European Conference on Software Architecture
   - ecsa
+  # Software Engineering for Adaptive and Self-Managing Systems (SEAMS)
+  - seams
+  # International Conference on Performance Engineering (ICPE, formerly WOSP)
+  - wosp
+  # Mobile Software Engineering and Systems (MOBILESoft)
+  - mobilesoft
+
+  # Software Engineering and Formal Methods
+  - sefm
+  # International Symposium on Formal Methods (FM)
+  - fm
+  # Tools and Algorithms for the Construction and Analysis of Systems (TACAS)
+  - tacas
 
   # SPLASH / OOPSLA / Onward!
   - oopsla
@@ -124,16 +149,17 @@ conferences:
   - pldi
   # MODULARITY / Aspect-Oriented Software Development
   - aosd
+  # Generative Programming and Component Engineering
+  - gpce
+  # Software Language Engineering
+  - sle
+  # The Art, Science, and Engineering of Programming (<Programming>)
+  - programming
 
   # Technical Symposium on Computer Science Education (SIGCSE)
   - sigcse
   # Conference on Software Engineering Education and Training
   - csee
-
-  # AAAI Conference on Artificial Intelligence
-  - aaai
-  # International Joint Conference on Artificial Intelligence
-  - ijcai
 
   # International Computer Software and Applications Conference
   - compsac
@@ -141,10 +167,20 @@ conferences:
   - profes
   # Software Quality, Reliability and Security
   - qrs
+  # International Symposium on Software Reliability Engineering
+  - issre
   # International Conference on Quality Software
   - qsic
   # Asia-Pacific Software Engineering Conference
   - apsec
+  # International Conference on Software Engineering and Knowledge Engineering
+  - seke
+  # Brazilian Symposium on Software Engineering
+  - sbes
+  # Asia-Pacific Symposium on Internetware
+  - internetware
+  # Asia-Pacific Conference on Conceptual Modelling
+  - apccm
 
   # International Workshop on Principles of Software Evolution
   - iwese
@@ -157,6 +193,10 @@ conferences:
   - forge
   # International Conference on AI Engineering
   - cain
+  # AAAI Conference on Artificial Intelligence
+  - aaai
+  # International Joint Conference on Artificial Intelligence
+  - ijcai
 
 year:
   lower: 1995
@@ -170,9 +210,13 @@ journal_names:
   "Autom. Softw. Eng.": "Automated Software Engineering"
   "IEEE Softw.": "IEEE Software"
   "ACM Comput. Surv.": "ACM Computing Surveys"
+  "ACM Trans. Program. Lang. Syst.": "ACM Transactions on Programming Languages and Systems"
+  "Art Sci. Eng. Program.": "The Art, Science, and Engineering of Programming"
   "J. Syst. Softw.": "Journal of Systems and Software"
   "Inf. Softw. Technol.": "Information and Software Technology"
   "Int. J. Softw. Tools Technol. Transf.": "International Journal on Software Tools for Technology Transfer"
+  "Softw. Pract. Exp.": "Software: Practice and Experience"
+  "Softw. Qual. J.": "Software Quality Journal"
   "Empir. Softw. Eng.": "Empirical Software Engineering"
   "Sci. Comput. Program.": "Science of Computer Programming"
   "J. Softw. Evol. Process.": "Journal of Software: Evolution and Process"
