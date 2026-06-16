@@ -62,11 +62,12 @@ test: dblp2text
 	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT ordinal FROM proceedings WHERE key='conf/icse/2001'")" = 23 || { echo "FAIL (db): conf ordinal"; exit 1; }
 	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT kind||'/'||ordinal FROM proceedings WHERE key='journals/corr/absWS25'")" = "workshop/5" || { echo "FAIL (db): workshop kind/ordinal"; exit 1; }
 	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT j.full_name FROM entries e JOIN journals j ON j.abbrev=e.journal WHERE e.key='journals/tse/MuellerA14'")" = "IEEE Transactions on Software Engineering" || { echo "FAIL (db): journal join"; exit 1; }
-	@# pass-through ("*"): both extractors agree, and the otherwise-filtered venue now survives.
-	@ruby dblp_text.rb --format=sql --config=test/config.all.yaml --dtd=test/test.dtd < test/fixture.xml | sort > /tmp/dblp_test.rb.all.sql
-	@./dblp2text       --format=sql --config=test/config.all.yaml --dtd=test/test.dtd < test/fixture.xml | sort > /tmp/dblp_test.go.all.sql
+	@# pass-through ("*"): exercise the shipped config-all.yaml; both extractors agree, and the
+	@# otherwise-filtered venue (journals/xx, absent from test/config.yaml) now survives.
+	@ruby dblp_text.rb --format=sql --config=config-all.yaml --dtd=test/test.dtd < test/fixture.xml | sort > /tmp/dblp_test.rb.all.sql
+	@./dblp2text       --format=sql --config=config-all.yaml --dtd=test/test.dtd < test/fixture.xml | sort > /tmp/dblp_test.go.all.sql
 	@cmp -s /tmp/dblp_test.rb.all.sql /tmp/dblp_test.go.all.sql || { echo "FAIL (wildcard): ruby != go"; diff /tmp/dblp_test.rb.all.sql /tmp/dblp_test.go.all.sql; exit 1; }
-	@test "$$(grep -c 'INSERT INTO entries' /tmp/dblp_test.rb.all.sql)" = 4 || { echo "FAIL (wildcard): expected 4 entries incl. the unfiltered venue"; exit 1; }
+	@grep -q "journals/xx/Unwanted10" /tmp/dblp_test.rb.all.sql || { echo "FAIL (wildcard): off-list venue not passed through"; exit 1; }
 	@# fail-fast: a config selecting no venues (here: empty /dev/null) must error, not silently emit nothing.
 	@if ruby dblp_text.rb --format=sql --config=/dev/null --dtd=test/test.dtd < test/fixture.xml >/dev/null 2>&1; then echo "FAIL (fail-fast): ruby accepted an empty config"; exit 1; fi
 	@if ./dblp2text       --format=sql --config=/dev/null --dtd=test/test.dtd < test/fixture.xml >/dev/null 2>&1; then echo "FAIL (fail-fast): go accepted an empty config"; exit 1; fi
