@@ -1,5 +1,5 @@
 # dblpsurvey
-A quick & fast survey tool with a grep-friendly text file generated from [dblp](https://dblp.org/) database
+A quick & fast survey tool that turns the [dblp](https://dblp.org/) database into a grep-friendly text file — and a queryable SQLite database — scoped to the venues you care about.
 
 ![](https://i.gyazo.com/3c1e31b89302d81cd1fbdfdf18b3fb89.gif)
 
@@ -12,14 +12,19 @@ Options:
 - `-d`: Remove DOI URLs from the output
 - `keyword`: Used as initial keywords when specified
 
-When running `dblpsurvey`, you can select your favorite lines if you have installed incremental search tools such as `peco`.
+When running `dblpsurvey`, you can select your favorite lines if you have installed incremental search tools such as `fzf` or `peco`.
 The results are pasted to the clipboard with `pbcopy`.
+
+Each line of the searchable database is one entry:
+```
+(journals/smr/Sae-LimHS18) Natthawute Sae-Lim, Shinpei Hayashi, Motoshi Saeki: "Context-based approach to prioritize code smells for prefactoring", J. Softw. Evol. Process., 30, 6, 2018. https://doi.org/10.1002/smr.1886
+```
 
 ## Prerequisites
 - Basic commands: `bash`, `curl`, `gzip`, `gunzip`, `realpath`, `perl`, and `make`
 - for building the text database, either:
-   - [Go](https://go.dev/) — the default, fast extractor (`make`), or
-   - [`ruby`](https://www.ruby-lang.org/) — the readable reference extractor (`make EXTRACTOR=ruby`)
+   - [Go](https://go.dev/) — the default, faster extractor (`make`), or
+   - [`ruby`](https://www.ruby-lang.org/) — the reference extractor (`make EXTRACTOR=ruby`)
 - for the SQLite database (`dblp.db`): the [`sqlite3`](https://sqlite.org/) CLI (with FTS5)
 - for search: [`fzf`](https://github.com/junegunn/fzf), [`peco`](https://github.com/peco/peco), or `grep`
 - (optional) for pasting to the clipboard: `pbcopy`, `xsel`, or `putclip`
@@ -28,7 +33,7 @@ The results are pasted to the clipboard with `pbcopy`.
 ```
 $ git clone https://github.com/sh5i/dblpsurvey.git
 $ cd dblpsurvey
-$ cp config.yaml.sample config.yaml
+$ cp config-se.yaml config.yaml
 # (Edit config.yaml as you like)
 $ make
 $ sudo make install   # this just does: ln -s $(realpath ./dblpsurvey) /usr/local/bin/
@@ -37,60 +42,61 @@ The `make` first downloads the DBLP XML database file from https://dblp.org/, th
 Such a text file is suitable for the grep-based search.
 `make` also builds `dblp.db`, a SQLite database for structured and full-text queries (see [Database](#database-dblpdb)).
 
-By default `make` builds and uses a fast Go extractor (`dblp_text.go`).
-To avoid installing Go, use the equivalent Ruby extractor instead: `make EXTRACTOR=ruby` (`dblp_text.rb`).
-`make test` checks that the two extractors produce identical output.
+The two extractors are interchangeable: `dblp_text.go` (default) and `dblp_text.rb` (`make EXTRACTOR=ruby`, no Go toolchain needed). `make test` checks that they produce identical output.
 
-## Example of config.yaml
-```
+## Configuration
+`config.yaml` selects what to extract. Two ready-made presets are shipped — copy one and edit:
+- `config-se.yaml` — a curated software-engineering set of journals and conferences (well commented).
+- `config-all.yaml` — no filtering (`"*"` matches every venue; the whole of DBLP, huge and slow — see the warning inside).
+
+```yaml
 journals:
-  # Enumerate your favorite journals in the DBLP world.
-  # Only the <article>s of ID "journals/(journal ID)/*" survive.
+  # Only <article>s under "journals/<id>/*" survive. Use a single "*" for every journal.
   - tse
   - tosem
 
 conferences:
-  # Enumerate your favorite conferences in the DBLP world.
-  # Only the <inproceedings>s of ID "conf/(conference ID)/*" survive.
+  # Only <inproceedings>s under "conf/<id>/*" survive. Use a single "*" for every conference.
   - icse
   - sigsoft
-  - kbse
+
+# Optional: map a journal's ISO-4 abbreviation (what DBLP stores) to its full title.
+# Registered into the `journals` lookup table at build time (see Database below).
+journal_names:
+  "IEEE Trans. Software Eng.": "IEEE Transactions on Software Engineering"
 
 year:
-  # Only the entries whose publishing year is in [lower, upper] survive.
+  # Keep only entries whose publishing year is in [lower, upper].
   lower: 2005
   upper: 2100
 ```
 
+A config that selects no venues is rejected; use `"*"` if you really want everything.
+
 ## Database (`dblp.db`)
-`make` also builds a SQLite database `dblp.db` for structured and full-text queries —
-handy for scripts, or for checking/cleaning a `.bib` against DBLP offline.
+`make` also builds a SQLite database `dblp.db` for structured and full-text queries — handy for scripts, or for checking/cleaning a `.bib` against DBLP offline.
 Build it alone with `make dblp.db` (needs the `sqlite3` CLI with FTS5).
 
-Its core is one flat table `entries` plus a full-text table `fts`, with two small
-lookup tables (`proceedings`, `journals`) you can join for clean venue/journal names:
+Its core is one flat table `entries` plus a full-text table `fts`, with two small lookup tables (`proceedings`, `journals`) you can join for clean venue/journal names:
 
 | column | notes |
-|---|---|
+| --- | --- |
 | `key` | DBLP key (primary key), e.g. `conf/icse/SmithB01` |
 | `type` | `article` or `inproceedings` |
 | `venue` | venue id from the key (`tse`, `icse`, …) |
 | `year` | integer |
-| `authors` | `Given Family, …` (same order as DBLP) |
+| `authors` | `Given Family, ...` (same order as DBLP) |
 | `title` | plain text (markup stripped, entities expanded) |
 | `title_norm` | `title` reduced to ASCII `[a-z0-9]`, lowercased — for exact lookup |
 | `journal` `booktitle` `volume` `number` `pages` | bibliographic fields |
 | `doi` | preferred electronic edition (doi.org if present) |
 | `ee` | all electronic-edition links, space-separated |
+| `crossref` | for an `inproceedings`, its proceedings key (joins `proceedings.key`) |
 
 `fts(key, title, authors)` is an FTS5 index for ranked fuzzy search.
 
-DBLP's `<article>` only stores an ISO-4 *abbreviation* (`IEEE Trans. Software Eng.`),
-never the full journal title, so `journals(abbrev, full_name)` is a hand-curated offline
-map (no network) — join it on `entries.journal = journals.abbrev`. (Keyed on the
-abbreviation, not the venue id: e.g. `ieicet` alone spans four journals.) Likewise the
-`proceedings` table carries derived `conf_name`/`canonical` names for conferences, joined
-on `entries.crossref = proceedings.key`.
+DBLP's `<article>` only stores an ISO-4 abbreviation (e.g., `IEEE Trans. Software Eng.`), never the full journal title, so `journals(abbrev, full_name)` is a hand-curated offline map (no network), populated from `journal_names:` in `config.yaml` — join it on `entries.journal = journals.abbrev`.
+Likewise the `proceedings` table carries derived `conf_name`/`canonical` names for conferences, joined on `entries.crossref = proceedings.key`.
 
 ```sql
 -- structured filter
@@ -114,8 +120,3 @@ JOIN journals j ON j.abbrev = e.journal WHERE e.venue = 'tse' AND e.year = 2020;
 SELECT e.key, e.authors, e.title FROM fts JOIN entries e USING(key)
 WHERE fts MATCH 'authors:(m* fowler)' LIMIT 10;
 ```
-
-Note: `dblp.db` contains only the venues/years selected by `config.yaml`, as of the last
-`make`. An empty result means "not in this subset / not rebuilt yet", **not** necessarily
-"does not exist" — out-of-scope or very recent entries still need dblp.org.
-
