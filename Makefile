@@ -36,43 +36,10 @@ distclean: clean
 dblp2text: dblp_text.go go.mod
 	go build -o $@ .
 
-# Contract that lets dblp_text.rb stay the editable reference and Go a fast twin:
-# both extractors must agree (text and sql), and the sql output must build a queryable
-# DB.  Multiset comparison (sort) since tie-order of equal-key entries differs.
+# Verify the Go and Ruby extractors agree and the emitted SQL builds a queryable DB.
+# The assertions live in test/run.sh (built dblp2text is a prerequisite).
 test: dblp2text
-	@ruby dblp_text.rb --color --config=test/config.yaml --dtd=test/test.dtd < test/fixture.xml | sort > /tmp/dblp_test.rb.txt
-	@./dblp2text       --color --config=test/config.yaml --dtd=test/test.dtd < test/fixture.xml | sort > /tmp/dblp_test.go.txt
-	@cmp -s /tmp/dblp_test.rb.txt /tmp/dblp_test.go.txt || { echo "FAIL (text): ruby != go"; diff /tmp/dblp_test.rb.txt /tmp/dblp_test.go.txt; exit 1; }
-	@ruby dblp_text.rb --format=sql --config=test/config.yaml --dtd=test/test.dtd < test/fixture.xml | sort > /tmp/dblp_test.rb.sql
-	@./dblp2text       --format=sql --config=test/config.yaml --dtd=test/test.dtd < test/fixture.xml | sort > /tmp/dblp_test.go.sql
-	@cmp -s /tmp/dblp_test.rb.sql /tmp/dblp_test.go.sql || { echo "FAIL (sql): ruby != go"; diff /tmp/dblp_test.rb.sql /tmp/dblp_test.go.sql; exit 1; }
-	@rm -f /tmp/dblp_test.db
-	@sqlite3 /tmp/dblp_test.db < schema.sql
-	@./dblp2text --format=sql --config=test/config.yaml --dtd=test/test.dtd < test/fixture.xml | sqlite3 /tmp/dblp_test.db
-	@sqlite3 /tmp/dblp_test.db "INSERT INTO fts(key,title,authors) SELECT key,title,authors FROM entries;"
-	@ruby dblp_confname.rb /tmp/dblp_test.db | sqlite3 /tmp/dblp_test.db
-	@test "$$(sqlite3 /tmp/dblp_test.db 'SELECT count(*) FROM entries')" = 3 || { echo "FAIL (db): row count"; exit 1; }
-	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT key FROM entries WHERE title_norm='onh2orefactoring'")" = journals/tse/MuellerA14 || { echo "FAIL (db): title_norm"; exit 1; }
-	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT key FROM fts WHERE fts MATCH 'refactoring'")" = journals/tse/MuellerA14 || { echo "FAIL (db): fts"; exit 1; }
-	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT key FROM entries WHERE ee LIKE '%10.1/late%'")" = journals/tse/MuellerA14 || { echo "FAIL (db): ee like"; exit 1; }
-	@test "$$(sqlite3 /tmp/dblp_test.db 'SELECT count(*) FROM proceedings')" = 2 || { echo "FAIL (db): proceedings count"; exit 1; }
-	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT count(*) FROM proceedings WHERE key LIKE 'journals/%'")" = 1 || { echo "FAIL (db): journals-keyed proceedings"; exit 1; }
-	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT substr(p.title,1,21) FROM entries e JOIN proceedings p ON p.key=e.crossref WHERE e.key='conf/icse/SmithB01'")" = "Proceedings of the 23" || { echo "FAIL (db): crossref join"; exit 1; }
-	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT conf_name FROM proceedings WHERE key='conf/icse/2001'")" = "International Conference on Software Engineering" || { echo "FAIL (db): conf_name"; exit 1; }
-	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT ordinal FROM proceedings WHERE key='conf/icse/2001'")" = 23 || { echo "FAIL (db): conf ordinal"; exit 1; }
-	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT kind||'/'||ordinal FROM proceedings WHERE key='journals/corr/absWS25'")" = "workshop/5" || { echo "FAIL (db): workshop kind/ordinal"; exit 1; }
-	@test "$$(sqlite3 /tmp/dblp_test.db "SELECT j.full_name FROM entries e JOIN journals j ON j.abbrev=e.journal WHERE e.key='journals/tse/MuellerA14'")" = "IEEE Transactions on Software Engineering" || { echo "FAIL (db): journal join"; exit 1; }
-	@# pass-through ("*"): exercise the shipped config-all.yaml; both extractors agree, and the
-	@# otherwise-filtered venue (journals/xx, absent from test/config.yaml) now survives.
-	@ruby dblp_text.rb --format=sql --config=config-all.yaml --dtd=test/test.dtd < test/fixture.xml | sort > /tmp/dblp_test.rb.all.sql
-	@./dblp2text       --format=sql --config=config-all.yaml --dtd=test/test.dtd < test/fixture.xml | sort > /tmp/dblp_test.go.all.sql
-	@cmp -s /tmp/dblp_test.rb.all.sql /tmp/dblp_test.go.all.sql || { echo "FAIL (wildcard): ruby != go"; diff /tmp/dblp_test.rb.all.sql /tmp/dblp_test.go.all.sql; exit 1; }
-	@grep -q "journals/xx/Unwanted10" /tmp/dblp_test.rb.all.sql || { echo "FAIL (wildcard): off-list venue not passed through"; exit 1; }
-	@# fail-fast: a config selecting no venues (here: empty /dev/null) must error, not silently emit nothing.
-	@if ruby dblp_text.rb --format=sql --config=/dev/null --dtd=test/test.dtd < test/fixture.xml >/dev/null 2>&1; then echo "FAIL (fail-fast): ruby accepted an empty config"; exit 1; fi
-	@if ./dblp2text       --format=sql --config=/dev/null --dtd=test/test.dtd < test/fixture.xml >/dev/null 2>&1; then echo "FAIL (fail-fast): go accepted an empty config"; exit 1; fi
-	@rm -f /tmp/dblp_test.rb.txt /tmp/dblp_test.go.txt /tmp/dblp_test.rb.sql /tmp/dblp_test.go.sql /tmp/dblp_test.rb.all.sql /tmp/dblp_test.go.all.sql /tmp/dblp_test.db
-	@echo "PASS: text + sql agree; db builds and queries (title_norm, fts, ee, proceedings join, conf_name, journal join); wildcard + fail-fast"
+	@./test/run.sh
 
 dblp.txt.gz: dblp.xml.gz dblp.dtd config.yaml $(EXTRACT_DEP)
 	gunzip -c dblp.xml.gz \
