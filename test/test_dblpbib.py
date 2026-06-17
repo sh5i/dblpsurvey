@@ -162,6 +162,73 @@ class CheckTests(unittest.TestCase):
             " booktitle={Some Wrong Venue},\n year={2020}\n}", short=True)
         self.assertEqual(self.by_field(f)["booktitle"]["dblp"], "Proc. {ICSE}")
 
+    FULL_TSE = "IEEE Transactions on Software Engineering"
+    ABBR_TSE = "IEEE Trans. Software Eng."
+
+    def _article(self, journal_line, short=False):
+        return self.finding(
+            "@article{a,\n author={Carol Lee and Dan Park},\n"
+            " title={Static Analysis for Concurrency Bugs},\n"
+            " %s\n volume={47},\n number={3},\n pages={200--220},\n"
+            " doi={10.1/tse21},\n year={2021}\n}" % journal_line, short)
+
+    def test_journal_full_name_accepted_default(self):
+        # Default mode prefers the full title; an entry already using it is OK.
+        f = self._article("journal={%s}," % self.FULL_TSE)
+        self.assertEqual(f["status"], "ok")
+        self.assertNotIn("journal", self.by_field(f))
+
+    def test_journal_abbrev_proposed_for_expansion(self):
+        # Default mode: the abbreviation is offered EXPANSION to the full title (review).
+        j = self.by_field(self._article("journal={%s}," % self.ABBR_TSE))["journal"]
+        self.assertEqual((j["op"], j["review"], j["dblp"]), ("edit", True, self.FULL_TSE))
+        self.assertIn("expand", j["note"])
+
+    def test_journal_abbrev_accepted_short(self):
+        # Under --short the abbreviation is the target, so it is OK.
+        f = self._article("journal={%s}," % self.ABBR_TSE, short=True)
+        self.assertNotIn("journal", self.by_field(f))
+
+    def test_journal_full_name_proposed_for_shortening(self):
+        # Under --short the full title is offered SHORTENING to the abbreviation (review).
+        j = self.by_field(self._article("journal={%s}," % self.FULL_TSE, short=True))["journal"]
+        self.assertEqual((j["op"], j["review"], j["dblp"]), ("edit", True, self.ABBR_TSE))
+        self.assertIn("shorten", j["note"])
+
+    def test_journal_fill_uses_full_name(self):
+        # A missing journal is filled with the official full title, not the abbreviation.
+        f = self.finding(
+            "@article{a,\n title={Static Analysis for Concurrency Bugs},\n year={2021}\n}")
+        j = self.by_field(f)["journal"]
+        self.assertEqual((j["op"], j["dblp"]), ("add", self.FULL_TSE))
+
+    def test_journal_short_form_uses_abbrev(self):
+        # Under --short the proposed/filled journal is DBLP's abbreviation.
+        f = self.finding(
+            "@article{a,\n title={Static Analysis for Concurrency Bugs},\n year={2021}\n}",
+            short=True)
+        self.assertEqual(self.by_field(f)["journal"]["dblp"], self.ABBR_TSE)
+
+    def test_venue_acronym_expanded_default(self):
+        # Default mode: a bare acronym booktitle is offered EXPANSION to the canonical name.
+        f = self.finding(
+            "@inproceedings{p,\n author={Alice B. Smith and Bob Jones},\n"
+            " title={A Great Paper on Software Testing},\n booktitle={ICSE},\n"
+            " pages={100--110},\n doi={10.1/icse20},\n year={2020}\n}")
+        bk = self.by_field(f)["booktitle"]
+        self.assertEqual((bk["op"], bk["review"]), ("edit", True))
+        self.assertIn("(ICSE 2020)", bk["dblp"])
+        self.assertIn("expand", bk["note"])
+
+    def test_venue_full_name_shortened(self):
+        # Under --short the canonical conference name is offered SHORTENING to 'Proc. {ICSE}'.
+        bk = self.by_field(self.finding(
+            "@inproceedings{p,\n title={A Great Paper on Software Testing},\n"
+            " booktitle={International Conference on Software Engineering},\n"
+            " year={2020}\n}", short=True))["booktitle"]
+        self.assertEqual(bk["dblp"], "Proc. {ICSE}")
+        self.assertIn("shorten", bk["note"])
+
     def test_apply_only_selected(self):
         text = ("@inproceedings{p,\n author={Alice B. Smith and Bob Jones},\n"
                 " title={A Great Paper on Software Testing},\n booktitle={Some Wrong Venue},\n"

@@ -252,37 +252,53 @@ def _vn(s):
     return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
 def venue_forms(con, row):
-    """Return (full_name, kind, accepted, acronym) for a row's venue.  For
-    inproceedings, follow the crossref to `proceedings` for the full official name
-    (e.g. 'Proceedings of the 47th ... (ICSE 2025)'), its kind (main/workshop/...),
-    the set of already-acceptable normalised forms (full / series / acronym) and the
-    bare acronym (e.g. 'ICSE', volume suffixes stripped).  For articles, the journal."""
+    """Return (full, kind, full_forms, short_forms, short) for a row's venue.
+
+    `full` is the expanded official name; `short` is the abbreviated form.  These are the
+    two proposal targets: the default target is `full`, the --short target is `short`.
+    `full_forms`/`short_forms` are the normalised spellings already acceptable on each
+    side, which makes a venue proposal *directional* -- a spelling sitting on the OTHER
+    side is offered expansion (default) or shortening (--short), not just "wrong".
+
+    Articles: `full` is the official journal title (from the `journals` table, keyed by
+    DBLP's abbreviation) and `short` the abbreviation; an unmapped journal has the two
+    equal, so neither expansion nor shortening is ever proposed.
+
+    Inproceedings: follow the crossref to `proceedings` for the canonical name
+    (e.g. 'Proceedings of the 47th ... (ICSE 2025)') and its kind (main/workshop/...);
+    `short` is the 'Proc. {ACRONYM}' form (acronym from the booktitle, e.g. 'ICSE')."""
     if row["type"] != "inproceedings":
         j = row["journal"]
-        return j, "journal", ({_vn(j)} if j else set()), j
+        if not j:
+            return "", "journal", set(), set(), ""
+        r = con.execute("SELECT full_name FROM journals WHERE abbrev=?", (j,)).fetchone()
+        full = (r["full_name"] if r else "") or j
+        return full, "journal", {_vn(full)}, {_vn(j)}, j
     xref = row["crossref"] if "crossref" in row.keys() else ""
-    short, cano, conf, kind = row["booktitle"], "", "", "main"
+    short_bt, cano, conf, kind = row["booktitle"], "", "", "main"
     if xref:
         p = con.execute("SELECT canonical, conf_name, booktitle, kind "
                         "FROM proceedings WHERE key=?", (xref,)).fetchone()
         if p:
             cano, conf = p["canonical"] or "", p["conf_name"] or ""
-            short = p["booktitle"] or short
+            short_bt = p["booktitle"] or short_bt
             kind = p["kind"] or "main"
-    name = cano or conf or short
-    acronym = re.sub(r"\s*\([^)]*\)\s*$", "", short).strip()   # 'ICSE (1)' -> 'ICSE'
-    accepted = {_vn(x) for x in (cano, conf, short, acronym) if x}
-    return name, kind, accepted, acronym
+    full = cano or conf or short_bt
+    acronym = re.sub(r"\s*\([^)]*\)\s*$", "", short_bt).strip()   # 'ICSE (1)' -> 'ICSE'
+    short = "Proc. {%s}" % acronym if acronym else full
+    full_forms = {_vn(x) for x in (cano, conf) if x}
+    short_forms = {_vn(x) for x in (short_bt, acronym, short) if x}
+    return full, kind, full_forms, short_forms, short
 
 def to_bibtex(con, citekey, row, short=False):
     """Serialise a DB row as a BibTeX entry, keeping the user's citation key and
     using the full official venue name (or 'Proc. {ACRONYM}' when short)."""
     fields = [("author", authors_to_bib(row["authors"])), ("title", row["title"])]
+    full, _kind, _ff, _sf, short_name = venue_forms(con, row)
     if row["type"] == "inproceedings":
-        name, _kind, _acc, acronym = venue_forms(con, row)
-        fields.append(("booktitle", "Proc. {%s}" % acronym if (short and acronym) else name))
+        fields.append(("booktitle", short_name if (short and short_name) else full))
     else:
-        fields += [("journal", row["journal"]),
+        fields += [("journal", short_name if (short and short_name) else full),
                    ("volume", row["volume"]), ("number", row["number"])]
     fields += [("pages", fmt_pages(row["pages"])), ("year", str(row["year"]))]
     doi = strip_doi(row["doi"])
@@ -359,8 +375,8 @@ def compare(con, entry, row, short=False):
       fixes   -- the .bib is wrong in a direction DBLP corrects
       reviews -- a real difference whose direction is the author's call (venue name,
                  a differing DOI, author/given-name detail, ambiguous pages)
-    Each review carries a note. process_entry turns all three into selectable proposals;
-    the tier only becomes the proposal's `kind` (fix / fill / venue / review)."""
+    Each review carries a note. process_entry turns all three into selectable proposals
+    (op add/edit + a `review` flag): fills -> add, fixes -> confident edit, reviews -> edit?."""
     fixes, reviews, fills = [], [], []
 
     # author
@@ -420,27 +436,26 @@ def compare(con, entry, row, short=False):
         elif strip_doi(cur).lower() != db.lower():
             reviews.append(("doi", cur, db, "DOI differs from DBLP — check (edition / preprint?)"))
 
-    # venue name: fill if missing, else propose the official name as a REVIEW-tier
-    # proposal (the venue string has no single right form, so the author chooses).
-    if entry.type == "article":
-        cur, db = entry.get("journal"), row["journal"]
-        if db:
-            if not cur:
-                fills.append(("journal", db))
-            elif _vn(cur) != _vn(db):
-                reviews.append(("journal", cur, db, "official journal name"))
-    elif row["type"] == "inproceedings":
-        name, _kind, accepted, acronym = venue_forms(con, row)
-        target = "Proc. {%s}" % acronym if (short and acronym) else name
-        if short and acronym:
-            accepted = accepted | {_vn(target)}    # 'Proc. {ICSE}' is fine in short mode
-        cur = entry.get("booktitle")
-        if name:
-            if not cur:
-                fills.append(("booktitle", target))
-            elif _vn(cur) not in accepted:
-                reviews.append(("booktitle", cur, target,
-                                "short venue form" if short else "official venue name"))
+    # venue name: directional on --short.  Default mode prefers the full official name
+    # (a short/abbreviated spelling is offered EXPANSION); --short prefers the short form
+    # (a long spelling is offered SHORTENING).  A spelling already on the target side is
+    # left untouched; an unrecognised one is a plain venue correction.  Journals live in
+    # the journal field, proceedings in booktitle; venue_forms supplies both sides' forms.
+    full, _vk, full_forms, short_forms, short_name = venue_forms(con, row)
+    if full or short_name:
+        vfield = "booktitle" if row["type"] == "inproceedings" else "journal"
+        word = "venue" if row["type"] == "inproceedings" else "journal"
+        target, accept, other = ((short_name, short_forms, full_forms) if short
+                                 else (full, full_forms, short_forms))
+        cur = entry.get(vfield)
+        if not cur:
+            fills.append((vfield, target))
+        elif _vn(cur) not in accept:
+            if _vn(cur) in other:
+                note = "shorten to the abbreviated form" if short else "expand to the full name"
+            else:
+                note = "short %s form" % word if short else "official %s name" % word
+            reviews.append((vfield, cur, target, note))
 
     return fixes, reviews, fills
 
@@ -754,8 +769,9 @@ def main():
                          "and append it to the .bib (repeatable; KEY sets the cite key, "
                          "otherwise one is generated). With -n, print to stdout instead.")
     ap.add_argument("--short", action="store_true",
-                    help="use the short venue form 'Proc. {ACRONYM}' for venue proposals "
-                         "and added entries, instead of the full official proceedings title")
+                    help="prefer the short venue form (a journal's abbreviation, a "
+                         "conference's 'Proc. {ACRONYM}') instead of the full official name; "
+                         "venue proposals then offer shortening rather than expansion")
     ap.add_argument("-n", "--dry-run", action="store_true",
                     help="with --apply/--pick, write the result to stdout instead of the file")
     ap.add_argument("--json", action="store_true", help="emit findings as JSON (report mode)")
