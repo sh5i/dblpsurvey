@@ -23,6 +23,7 @@ database is treated as "skip" (exit 0) so it never blocks a build.
 """
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -529,16 +530,18 @@ def _edit_for(e, field, value):
     pos = e.last_field_end()
     return (pos, pos, ",\n  %s = {%s}" % (field, value))
 
-def _proposal(e, kind, field, bib, dblp, note=""):
-    return dict(id="%s:%s" % (e.key, field), kind=kind, field=field, bib=bib, dblp=dblp,
-                note=note, edit=_edit_for(e, field, dblp))
+def _proposal(e, op, field, bib, dblp, note="", review=False):
+    return dict(id="%s:%s" % (e.key, field), op=op, review=review, field=field,
+                bib=bib, dblp=dblp, note=note, edit=_edit_for(e, field, dblp))
 
 def process_entry(con, e, short=False):
     """Classify one .bib entry against DBLP. Returns a finding dict, or None to skip.
     A matched finding carries `proposals`: each a selectable change with a stable id
-    (`citekey:field`, or `citekey:@` for an arXiv->published whole-entry swap), a `kind`
-    (fix / fill / venue / review / upgrade), before/after values and a surgical edit.
-    `status` summarises the finding; an unmatched one carries fuzzy `candidates`."""
+    (`citekey:field`, or `citekey:@`), an operation `op` (add a missing field / edit an
+    existing one / replace the whole entry) and a `review` flag (True = the author should
+    judge it; False = DBLP is authoritative, so it is safe to apply), plus before/after
+    values and a surgical edit. `status` summarises the finding; an unmatched one carries
+    fuzzy `candidates`."""
     if e.type == "misc" and not is_arxiv(e):
         return None                            # non-paper @misc (datasets, manuals): skip
     title = e.get("title")
@@ -551,14 +554,15 @@ def process_entry(con, e, short=False):
                     candidates=[dict(year=c["year"], venue=c["venue"], title=c["title"])
                                 for c in cands])
 
-    # An arXiv-form entry that is now formally published -> a whole-entry swap proposal.
+    # An arXiv-form entry that is now formally published -> a whole-entry replace proposal.
     published = suggest_publication(e, pub, pre)
     if published:
-        kind = venue_forms(con, published)[1]
-        tag = "" if kind in ("main", "journal") else " [%s]" % kind
+        vkind = venue_forms(con, published)[1]
+        tag = "" if vkind in ("main", "journal") else " [%s]" % vkind
         vshort = published["booktitle"] or published["journal"]
         repl = to_bibtex(con, e.key, published, short)
-        prop = dict(id="%s:@" % e.key, kind="upgrade", field="@entry", bib="@" + e.type,
+        prop = dict(id="%s:@" % e.key, op="replace", review=True, field="@entry",
+                    bib="@" + e.type,
                     dblp="%s %s%s (%s)" % (vshort, published["year"], tag, published["key"]),
                     note="now published — replace the whole entry",
                     replacement=repl, edit=(e.start, e.body_close + 1, repl))
@@ -572,12 +576,11 @@ def process_entry(con, e, short=False):
         reviews.insert(0, ("title", title, row["title"],
                            "matched by %s but the title differs — an arXiv title may have "
                            "changed across versions, or a typo / wrong key" % matched_by.upper()))
-    props = [_proposal(e, "fix", f, a, b) for f, a, b in fixes]
-    props += [_proposal(e, "venue" if f in ("booktitle", "journal") else "review", f, a, b, n)
-              for f, a, b, n in reviews]
-    props += [_proposal(e, "fill", f, "", b) for f, b in fills]
-    status = ("mismatch" if any(p["kind"] == "fix" for p in props)
-              else "review" if any(p["kind"] in ("review", "venue") for p in props)
+    props = [_proposal(e, "edit", f, a, b) for f, a, b in fixes]               # confident edit
+    props += [_proposal(e, "edit", f, a, b, n, review=True) for f, a, b, n in reviews]
+    props += [_proposal(e, "add", f, "", b) for f, b in fills]                 # missing field
+    status = ("mismatch" if any(p["op"] == "edit" and not p["review"] for p in props)
+              else "review" if any(p["review"] for p in props)
               else "incomplete" if props else "ok")
     return dict(key=e.key, status=status, title=title, matched_by=matched_by,
                 proposals=props, candidates=[])
@@ -599,10 +602,35 @@ def _trunc(s, n=90):
     s = " ".join(str(s).split())
     return s if len(s) <= n else s[:n - 1] + "…"
 
+# operation -> (glyph, label, ANSI colour). A review proposal overrides to a yellow "?".
+OP = dict(add=("+", "add", "36"), edit=("~", "edit", "32"), replace=("»", "repl", "35"))
+
+def _op_style(p):
+    sym, label, col = OP[p["op"]]
+    return ("?", label, "33") if p["review"] else (sym, label, col)
+
+def _op_tag(p):
+    return OP[p["op"]][1] + ("?" if p["review"] else "")    # add / edit / edit? / repl
+
 def _summary(p):
-    if p["kind"] == "fill":
+    if p["op"] == "add":
         return "+ %s" % p["dblp"]
     return "%s → %s" % (p["bib"] or "(empty)", p["dblp"])
+
+def render_show(f, p, color):
+    """Return the full before/after block for one proposal (the fzf preview body)."""
+    c = _colorer(color)
+    sym, label, col = _op_style(p)
+    note = ("  " + c("33" if p["review"] else "90", p["note"])) if p["note"] else ""
+    out = ["%s  %s" % (c("1", f["title"]), c("90", f["key"])),
+           "%s %s%s" % (c(col + ";1", "%s %s" % (sym, label)), c("1", p["field"]), note)]
+    if p["op"] == "replace":
+        out += ["  " + c("90", line) for line in p["replacement"].splitlines()]
+    else:
+        if p["bib"]:
+            out.append("  %s %s" % (c("90", "bib "), c("31", p["bib"])))
+        out.append("  %s %s" % (c("90", "dblp"), c("32", p["dblp"])))
+    return "\n".join(out)
 
 def _read_ids(spec):
     """IDs for --apply: '-' reads the leading token of each stdin line (fzf/peco output),
@@ -617,37 +645,29 @@ def _apply_ids(text, props, ids):
     pmap = {p["id"]: p for p in props}
     chosen = [pmap[i] for i in ids if i in pmap]
     missing = [i for i in ids if i not in pmap]
-    upgraded = {p["id"].rsplit(":", 1)[0] for p in chosen if p["kind"] == "upgrade"}
+    replaced = {p["id"].rsplit(":", 1)[0] for p in chosen if p["op"] == "replace"}
     chosen = [p for p in chosen
-              if p["kind"] == "upgrade" or p["id"].rsplit(":", 1)[0] not in upgraded]
+              if p["op"] == "replace" or p["id"].rsplit(":", 1)[0] not in replaced]
     return apply_fixes(text, [p["edit"] for p in chosen]), chosen, missing
 
 def cmd_plan(findings):
-    """One selectable proposal per line: id <TAB> kind <TAB> summary. Plain text so it
-    pipes cleanly into fzf/peco (the id is the first field, read back by --apply/preview)."""
+    """One selectable proposal per line: id <TAB> op <TAB> summary. Plain text so it pipes
+    cleanly into fzf/peco (the id is the first field, read back by --apply / the preview)."""
     for p in all_proposals(findings):
-        print("%s\t%s\t%s" % (p["id"], p["kind"], _trunc(_summary(p))))
+        print("%s\t%s\t%s" % (p["id"], _op_tag(p), _trunc(_summary(p))))
     return 0
 
-def cmd_show(findings, idstr, color):
-    """Full before/after for one proposal (used as the fzf --preview; also handy alone)."""
-    c = _colorer(color)
-    pmap = {p["id"]: (f, p) for f in findings for p in f.get("proposals", [])}
-    if idstr not in pmap:
+def cmd_show(con, entries, short, idstr, color):
+    """Full before/after for ONE proposal (the fzf --preview body; also handy alone). Only
+    the entry named by the id is re-derived, so the preview stays fast on a large .bib."""
+    key = idstr.rsplit(":", 1)[0]
+    ent = next((e for e in entries if e.key == key), None)
+    f = process_entry(con, ent, short) if ent else None
+    p = next((q for q in f["proposals"] if q["id"] == idstr), None) if f else None
+    if not p:
         print("no such proposal: %s" % idstr)
         return 1
-    f, p = pmap[idstr]
-    kc = KIND_C.get(p["kind"], "0")
-    print("%s  %s" % (c("1", "[%s]" % f["key"]), f["title"]))
-    print("%s %s%s" % (c(kc + ";1", p["kind"]), c("1", p["field"]),
-                       "  " + c("90", p["note"]) if p["note"] else ""))
-    if p["kind"] == "upgrade":
-        for line in p["replacement"].splitlines():
-            print("  " + c("34", line))
-    else:
-        if p["bib"]:
-            print("  - bib : %s" % c("31", p["bib"]))
-        print("  + dblp: %s" % c("32", p["dblp"]))
+    print(render_show(f, p, color))
     return 0
 
 def _write_or_echo(text, applied, bib, dry_run):
@@ -661,7 +681,7 @@ def cmd_apply(con, entries, text, short, spec, bib, dry_run, color):
     c = _colorer(color)
     props = all_proposals(derive(con, entries, short))
     if spec in ("safe", "all"):
-        ids = [p["id"] for p in props if spec == "all" or p["kind"] in ("fix", "fill")]
+        ids = [p["id"] for p in props if spec == "all" or not p["review"]]
     else:
         ids = _read_ids(spec)
     new_text, applied, missing = _apply_ids(text, props, ids)
@@ -676,24 +696,31 @@ def cmd_apply(con, entries, text, short, spec, bib, dry_run, color):
     return 0
 
 def cmd_pick(con, entries, text, short, bib, db, dry_run, color):
-    props = all_proposals(derive(con, entries, short))
+    findings = derive(con, entries, short)
+    props = all_proposals(findings)
     if not props:
         sys.stderr.write("nothing to pick (no proposals)\n")
         return 0
-    plan = "".join("%s\t%s\t%s\n" % (p["id"], p["kind"], _trunc(_summary(p))) for p in props)
     picker = shutil.which("fzf") or shutil.which("peco")
     if not picker:
         sys.stderr.write("--pick needs fzf or peco; or compose: "
                          "dblpbib BIB --plan | <picker> | dblpbib BIB --apply -\n")
         return 1
-    if os.path.basename(picker) == "fzf":
-        prog = "%s %s" % (shlex.quote(sys.executable), shlex.quote(os.path.abspath(__file__)))
-        preview = "%s %s%s --show {1}" % (prog, shlex.quote(bib),
-                                          (" --db " + shlex.quote(db)) if db else "")
-        cmd = [picker, "-m", "--delimiter", "\t", "--with-nth", "2,3", "--preview", preview]
+    is_fzf = os.path.basename(picker) == "fzf"
+    fmap = {p["id"]: f for f in findings for p in f["proposals"]}
+    lines = []
+    for p in props:
+        row = "%s\t%s\t%s" % (p["id"], _op_tag(p), _trunc(_summary(p)))
+        if is_fzf:   # embed the rendered preview (base64) -> fzf shows it with no re-invocation
+            row += "\t" + base64.b64encode(render_show(fmap[p["id"]], p, True).encode()).decode()
+        lines.append(row)
+    if is_fzf:
+        cmd = [picker, "-m", "--ansi", "--delimiter", "\t", "--with-nth", "2,3",
+               "--preview", "printf %s {4} | base64 --decode",
+               "--preview-window", "down,45%,wrap"]
     else:
         cmd = [picker]
-    sel = subprocess.run(cmd, input=plan, capture_output=True, text=True)
+    sel = subprocess.run(cmd, input="\n".join(lines) + "\n", capture_output=True, text=True)
     ids = [re.split(r"\s+", ln.strip(), 1)[0] for ln in sel.stdout.splitlines() if ln.strip()]
     if not ids:
         sys.stderr.write("no selection\n")
@@ -756,7 +783,7 @@ def main():
     if args.add:
         return add_entries(con, args, text, entries, color)
     if args.show is not None:
-        return cmd_show(derive(con, entries, args.short), args.show, color)
+        return cmd_show(con, entries, args.short, args.show, color)
     if args.plan:
         return cmd_plan(derive(con, entries, args.short))
     if args.apply is not None:
@@ -778,44 +805,40 @@ def main():
         report(findings, counts, color, args.verbose)
     return 1 if counts["mismatch"] else 0       # CI gate: confirmed errors fail
 
-# status -> (emoji, label, ANSI colour code); proposal kind -> ANSI colour code
-STYLE = dict(
-    ok=("✅", "OK", "32"), mismatch=("❌", "MISMATCH", "31"),
-    review=("⚠️ ", "REVIEW", "33"), upgrade=("⬆️ ", "UPGRADE", "34"),
-    incomplete=("➕", "INCOMPLETE", "36"), fuzzy=("🔍", "FUZZY", "35"),
-    unknown=("❓", "UNKNOWN", "90"))
-KIND_C = dict(fix="31", venue="33", review="33", fill="36", upgrade="34")
+# finding status -> ANSI colour for the leading dot (severity at a glance).
+STYLE = dict(ok="32", mismatch="31", review="33", upgrade="35",
+             incomplete="36", fuzzy="90", unknown="90")
 
 def report(findings, counts, color, verbose):
     c = _colorer(color)
     for f in findings:
         if f["status"] == "ok" and not verbose:    # OK entries shown only with -v
             continue
-        emoji, label, code = STYLE[f["status"]]
-        print("%s %s  %s" % (emoji, c(code + ";1", label), c("1", "[%s]" % f["key"])))
-        print("   %s" % f["title"])                       # full title, never truncated
-        for p in f.get("proposals", []):                  # each proposal shows its id
-            kc = KIND_C.get(p["kind"], "0")
-            print("   %s %s  %s%s" % (c(kc, "•"), c("1", p["field"]), c("90", p["id"]),
-                                      "  " + c(kc, p["note"]) if p["note"] else ""))
-            if p["kind"] == "upgrade":
-                for line in (p.get("replacement") or "").splitlines():
-                    print("       %s" % c("34", line))
-            else:
-                if p["bib"]:
-                    print("       bib : %s" % c("31", p["bib"]))
-                print("       dblp: %s" % c("32", p["dblp"]))
+        print("%s %s  %s" % (c(STYLE[f["status"]], "●"), c("1", f["title"]), c("90", f["key"])))
+        for p in f.get("proposals", []):
+            sym, op, col = _op_style(p)
+            head = "  %s %s %s" % (c(col + ";1", sym), c(col, "%-4s" % op),
+                                   c("1", "%-10s" % p["field"]))
+            note = "  " + c("33", _trunc(p["note"], 48)) if p["note"] else ""
+            if p["op"] == "replace":
+                print("%s%s  %s" % (head, note, c("90", p["id"])))
+            elif p["op"] == "add":
+                print("%s %s  %s" % (head, c("32", _trunc(p["dblp"], 64)), c("90", p["id"])))
+            else:                                              # edit: before -> after (truncated; full text via --show)
+                print("%s %s %s %s%s  %s"
+                      % (head, c("31", _trunc(p["bib"], 32)), c("90", "→"),
+                         c("32", _trunc(p["dblp"], 48)), note, c("90", p["id"])))
         for cand in f.get("candidates", []):
-            print("   %s %s %-8s %s"
+            print("  %s %s %-8s %s"
                   % (c("90", "~"), cand["year"], cand["venue"], cand["title"]))
         if f["status"] in ("fuzzy", "unknown"):
-            print(c("90", "     (no exact match — may be out of DB scope; check manually)"))
-    parts = [("%d %s" % (counts[k], STYLE[k][1].lower())) for k in
-             ("ok", "mismatch", "review", "upgrade", "incomplete", "fuzzy", "unknown")]
-    print("\n%s %s" % (c("1", "summary:"), ", ".join(parts)))
+            print("  %s" % c("90", "(no exact match — may be out of DB scope; check manually)"))
+    parts = [("%d %s" % (counts[k], k)) for k in
+             ("ok", "mismatch", "review", "upgrade", "incomplete", "fuzzy", "unknown")
+             if counts[k]]
+    print("\n%s %s" % (c("1", "summary:"), ", ".join(parts) or "nothing to check"))
     if any(counts[k] for k in ("mismatch", "review", "incomplete", "upgrade")):
-        print(c("90", "  choose fixes: dblpbib %s --pick   (or --plan | fzf -m | … --apply -)"
-                      % "BIB"))
+        print(c("90", "  pick fixes:  dblpbib BIB --pick"))
 
 if __name__ == "__main__":
     sys.exit(main())

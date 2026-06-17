@@ -132,8 +132,8 @@ class CheckTests(unittest.TestCase):
             " title={A Great Paper on Software Testing},\n"
             " booktitle={International Conference on Software Engineering},\n year={2020}\n}")
         self.assertEqual(f["status"], "incomplete")
-        self.assertEqual({k: p["kind"] for k, p in self.by_field(f).items()},
-                         {"pages": "fill", "doi": "fill"})
+        self.assertEqual({k: p["op"] for k, p in self.by_field(f).items()},
+                         {"pages": "add", "doi": "add"})
 
     def test_mismatch_year_is_a_fix(self):
         f = self.finding(
@@ -143,7 +143,8 @@ class CheckTests(unittest.TestCase):
             " pages={200--220},\n year={2019}\n}")
         self.assertEqual(f["status"], "mismatch")
         yr = self.by_field(f)["year"]
-        self.assertEqual((yr["kind"], yr["dblp"], yr["id"]), ("fix", "2021", "a:year"))
+        self.assertEqual((yr["op"], yr["review"], yr["dblp"], yr["id"]),
+                         ("edit", False, "2021", "a:year"))
 
     def test_venue_diff_is_a_proposal(self):
         f = self.finding(
@@ -152,7 +153,7 @@ class CheckTests(unittest.TestCase):
             " pages={100--110},\n doi={10.1/icse20},\n year={2020}\n}")
         self.assertEqual(f["status"], "review")
         bk = self.by_field(f)["booktitle"]
-        self.assertEqual(bk["kind"], "venue")
+        self.assertEqual((bk["op"], bk["review"]), ("edit", True))   # venue diff = a review-edit
         self.assertIn("(ICSE 2020)", bk["dblp"])
 
     def test_venue_short_form(self):
@@ -177,7 +178,7 @@ class CheckTests(unittest.TestCase):
                 " title={Static Analysis for Concurrency Bugs},\n"
                 " journal={Wrong Journal Name},\n year={2019}\n}")  # journal -> venue, year -> fix
         props = self.finding(text)["proposals"]
-        safe = [p["id"] for p in props if p["kind"] in ("fix", "fill")]
+        safe = [p["id"] for p in props if not p["review"]]
         _, applied, _ = bc._apply_ids(text, props, safe)
         fields = {p["field"] for p in applied}
         self.assertIn("year", fields)               # fix applied
@@ -190,7 +191,7 @@ class CheckTests(unittest.TestCase):
         f = self.finding(text)
         self.assertEqual(f["status"], "upgrade")
         up = f["proposals"][0]
-        self.assertEqual(up["kind"], "upgrade")
+        self.assertEqual((up["op"], up["review"]), ("replace", True))
         self.assertTrue(up["id"].endswith(":@"))
         self.assertIn("Neural Methods for Program Repair", up["replacement"])
         new, applied, _ = bc._apply_ids(text, f["proposals"], [up["id"]])
