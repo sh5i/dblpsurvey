@@ -97,6 +97,53 @@ class HelperTests(unittest.TestCase):
     def test_read_ids(self):
         self.assertEqual(bc._read_ids("a:b, c:d ,"), ["a:b", "c:d"])
 
+    def test_parse_selector(self):
+        s, e = bc._parse_selector("Knuth:1984:year")
+        self.assertIsNone(e)
+        self.assertEqual((s["keypat"], s["items"]), ("Knuth:1984", ["year"]))   # split on LAST colon
+        self.assertEqual(bc._parse_selector("a:booktitle,abstract,note")[0]["items"],
+                         ["booktitle", "abstract", "note"])             # comma field list
+        self.assertEqual(bc._parse_selector("@inproceedings:*")[0]["keypat"], "@inproceedings")
+        self.assertIsNotNone(bc._parse_selector("hoge-*:year")[1])      # reserved glob -> error
+        self.assertIsNotNone(bc._parse_selector("noColonHere")[1])
+
+    def test_parse_ignores_whitespace_and_comments(self):
+        text = ("@comment{dblpbib-ignore\n"
+                "  A:year  B:doi   # two selectors on a line, then a comment\n"
+                "  *:doi\n"
+                "  % a full-line comment\n"
+                "}\n@article{A, title={T}, year={2020}}\n")
+        sels, errs = bc.parse_ignores(text)
+        self.assertEqual([s["sel"] for s in sels], ["A:year", "B:doi", "*:doi"])
+        self.assertEqual(errs, [])
+
+    def test_write_ignores_creates_block(self):
+        text = "@article{A, title={T}, year={2020}}\n"
+        out = bc._write_ignores(text, ["A:year", "A:doi"])
+        sels, _ = bc.parse_ignores(out)
+        self.assertEqual({s["sel"] for s in sels}, {"A:year", "A:doi"})
+        self.assertIn("@article{A,", out)                       # entry preserved
+        self.assertEqual(out.count("@comment{dblpbib-ignore"), 1)
+
+    def test_write_ignores_appends_to_existing(self):
+        text = "@comment{dblpbib-ignore\n  A:year\n}\n\n@article{A, title={T}, year={2020}}\n"
+        out = bc._write_ignores(text, ["B:doi"])
+        sels, _ = bc.parse_ignores(out)
+        self.assertEqual({s["sel"] for s in sels}, {"A:year", "B:doi"})
+        self.assertEqual(out.count("@comment{dblpbib-ignore"), 1)   # appended, not a 2nd block
+
+    def test_write_ignores_below_header(self):
+        # the new block goes below leading comments and @string/@comment, above the first entry.
+        text = ("% my refs\n% kept by hand\n\n"
+                "@comment{a note with an @article{Decoy} inside, brace-skipped}\n\n"
+                "@string{me = {Me}}\n\n"
+                "@article{A, title={T}, year={2020}}\n")
+        out = bc._write_ignores(text, ["A:year"])
+        self.assertLess(out.index("% my refs"), out.index("@comment{dblpbib-ignore"))
+        self.assertLess(out.index("@string{me"), out.index("@comment{dblpbib-ignore"))
+        self.assertLess(out.index("@comment{dblpbib-ignore"), out.index("@article{A,"))
+        self.assertEqual({s["sel"] for s in bc.parse_ignores(out)[0]}, {"A:year"})
+
 
 class CheckTests(unittest.TestCase):
     @classmethod
@@ -276,6 +323,57 @@ class CheckTests(unittest.TestCase):
     def test_misc_non_paper_skipped(self):
         self.assertIsNone(self.finding(
             "@misc{d, title={A Dataset}, howpublished={Zenodo}, year={2020}}"))
+
+    # --- suppression (ignore) -------------------------------------------------
+    MISMATCH = ("@article{a,\n author={Carol Lee and Dan Park},\n"
+                " title={Static Analysis for Concurrency Bugs},\n"
+                " journal={IEEE Trans. Software Eng.},\n volume={47},\n number={3},\n"
+                " pages={200--220},\n year={2019}\n}")   # year wrong, doi missing, journal abbrev
+
+    def _suppress(self, finding, *sel):
+        sels, _ = bc.cli_ignores(list(sel))
+        bc.apply_suppressions([finding], sels)
+        return finding, sels
+
+    def test_suppress_exact_demotes_status(self):
+        f, sels = self._suppress(self.finding(self.MISMATCH), "a:year")
+        self.assertTrue(self.by_field(f)["year"]["suppressed"])
+        self.assertFalse(self.by_field(f)["doi"]["suppressed"])
+        self.assertEqual(bc._eff_status(f), "review")        # year gone -> journal review left
+        self.assertEqual(sels[0]["count"], 1)
+        t = bc.tally([f])
+        self.assertEqual((t["mismatch"], t["suppressed"]), (0, 1))   # CI no longer fails
+
+    def test_suppress_whole_entry(self):
+        f, _ = self._suppress(self.finding(self.MISMATCH), "a:*")
+        self.assertTrue(all(p["suppressed"] for p in f["proposals"]))
+        self.assertEqual(bc._eff_status(f), "ok")
+
+    def test_suppress_multi_field(self):
+        f, _ = self._suppress(self.finding(self.MISMATCH), "a:year,doi")
+        self.assertTrue(self.by_field(f)["year"]["suppressed"])
+        self.assertTrue(self.by_field(f)["doi"]["suppressed"])
+
+    def test_suppress_by_type_matches_only_that_type(self):
+        venue = ("@inproceedings{p,\n title={A Great Paper on Software Testing},\n"
+                 " booktitle={Some Wrong Venue},\n year={2020}\n}")
+        f, _ = self._suppress(self.finding(venue), "@article:booktitle")
+        self.assertFalse(self.by_field(f)["booktitle"]["suppressed"])   # entry is inproceedings
+        g, _ = self._suppress(self.finding(venue), "@inproceedings:booktitle")
+        self.assertTrue(self.by_field(g)["booktitle"]["suppressed"])
+
+    def test_suppress_fuzzy_nag(self):
+        f = self.finding("@article{g, title={Static Analysis for Quantum Bugs}, year={2020}}")
+        self.assertEqual(f["status"], "fuzzy")
+        f, sels = self._suppress(f, "g:*")
+        self.assertTrue(f["nag_suppressed"])
+        self.assertEqual(bc._eff_status(f), "ok")
+        self.assertEqual(sels[0]["count"], 1)
+
+    def test_stale_selector_counts_zero(self):
+        f, sels = self._suppress(self.finding(self.MISMATCH), "Nope:year")
+        self.assertEqual(sels[0]["count"], 0)
+        self.assertEqual(bc._eff_status(f), "mismatch")           # nothing actually suppressed
 
 
 if __name__ == "__main__":

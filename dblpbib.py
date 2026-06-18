@@ -17,6 +17,26 @@ stable id `citekey:field` (or `citekey:@` for an arXiv->published whole-entry sw
   dblpbib refs.bib --apply key:year,key:pages    # apply named ids
   dblpbib refs.bib --apply safe          # non-interactive: all confirmed fixes + fills
   dblpbib refs.bib --add 10.1145/xxxxxxx # fetch an entry from the DB and append it
+  dblpbib refs.bib -a                    # also show suppressed (ignored) proposals
+  dblpbib refs.bib --ignore key:doi      # suppress one proposal for this run (ephemeral)
+  dblpbib refs.bib --plan | fzf | dblpbib refs.bib --mute -   # silence chosen ones for good
+  dblpbib refs.bib --mute all            # silence every still-warning proposal for good
+
+Proposals you have deliberately decided not to change can be silenced.  An in-file
+block (travels with the .bib; @comment is ignored by BibTeX/biblatex) lists selectors
+`<keypat>:<fieldlist>`, whitespace-separated (any number per line); `#` or `%` starts a
+to-end-of-line comment:
+
+  @comment{dblpbib-ignore
+    Yu2021:doi  Yu2021:booktitle,note   # preprint DOI + short venue form kept
+    *:doi                               # I always keep my own DOIs  ('*' key = any entry)
+    @misc:*                             # out of DB scope            ('@type' = a type)
+  }
+
+keypat is a cite key, `*` (any entry) or `@type`; a field is a name, `@` (the whole-entry
+replace) or `*` (everything for that entry).  A suppressed proposal is hidden, omitted from
+--apply / --pick, and does NOT count toward the CI-failing mismatches; a selector that
+matches nothing is reported as stale.
 
 The DB path may be given via --db or the DBLP_DB environment variable.  A missing
 database is treated as "skip" (exit 0) so it never blocks a build.
@@ -564,8 +584,8 @@ def process_entry(con, e, short=False):
 
     if not (pub or pre):                       # no match -> fuzzy candidates, else unknown
         cands = fuzzy(con, title)
-        return dict(key=e.key, status=("fuzzy" if cands else "unknown"), title=title,
-                    matched_by=None, proposals=[],
+        return dict(key=e.key, type=e.type, status=("fuzzy" if cands else "unknown"),
+                    title=title, matched_by=None, proposals=[],
                     candidates=[dict(year=c["year"], venue=c["venue"], title=c["title"])
                                 for c in cands])
 
@@ -581,8 +601,8 @@ def process_entry(con, e, short=False):
                     dblp="%s %s%s (%s)" % (vshort, published["year"], tag, published["key"]),
                     note="now published — replace the whole entry",
                     replacement=repl, edit=(e.start, e.body_close + 1, repl))
-        return dict(key=e.key, status="upgrade", title=title, matched_by=matched_by,
-                    proposals=[prop], candidates=[])
+        return dict(key=e.key, type=e.type, status="upgrade", title=title,
+                    matched_by=matched_by, proposals=[prop], candidates=[])
 
     # Otherwise verify against the canonical record (published if available, else arXiv).
     row = pub[0] if pub else pre[0]
@@ -597,15 +617,160 @@ def process_entry(con, e, short=False):
     status = ("mismatch" if any(p["op"] == "edit" and not p["review"] for p in props)
               else "review" if any(p["review"] for p in props)
               else "incomplete" if props else "ok")
-    return dict(key=e.key, status=status, title=title, matched_by=matched_by,
-                proposals=props, candidates=[])
+    return dict(key=e.key, type=e.type, status=status, title=title,
+                matched_by=matched_by, proposals=props, candidates=[])
 
-def derive(con, entries, short=False):
-    """All findings for the parsed entries (skipped entries dropped)."""
-    return [f for f in (process_entry(con, e, short) for e in entries) if f is not None]
+def derive(con, entries, short=False, selectors=()):
+    """All findings for the parsed entries (skipped entries dropped); suppressions applied."""
+    findings = [f for f in (process_entry(con, e, short) for e in entries) if f is not None]
+    apply_suppressions(findings, selectors)
+    return findings
 
 def all_proposals(findings):
     return [p for f in findings for p in f.get("proposals", [])]
+
+# --- suppression (the @comment{dblpbib-ignore ...} block) ---------------------
+# Selectors are whitespace-separated tokens "<keypat>:<fieldlist>" (any number per line);
+# '#' or '%' starts an end-of-line comment (use it for human notes / reasons).
+#   keypat    = a cite key | '*' (any entry) | '@type' (any entry of that type)
+#   fieldlist = comma-separated: a field name | '@' (whole-entry replace) | '*' (all)
+# Read from an in-file @comment block (travels with the .bib) and/or --ignore.
+# Split on the LAST ':' (keys may contain ':'); an embedded key glob (e.g. hoge-*)
+# is reserved -> a loud error, never a silent no-match.
+
+IGNORE_BLOCK = re.compile(r"@comment\s*\{\s*dblpbib-ignore[ \t]*:?", re.I)
+
+def _tokens(text):
+    """Whitespace-separated selector tokens, with '#'/'%' to-end-of-line comments stripped."""
+    return [t for line in text.splitlines() for t in line.split("#", 1)[0].split("%", 1)[0].split()]
+
+def _parse_selector(tok):
+    """One selector token -> (selector dict, None) or (None, error string)."""
+    if ":" not in tok:
+        return None, "ignore: missing ':' in %r" % tok
+    keypat, fieldstr = tok.rsplit(":", 1)          # LAST ':' (a key may contain ':')
+    if not keypat:
+        return None, "ignore: empty key in %r" % tok
+    if "*" in keypat and keypat != "*":
+        return None, "ignore: partial key globs are reserved, not supported: %r" % tok
+    items = [x for x in fieldstr.split(",") if x]
+    if not items:
+        return None, "ignore: no field/sentinel after ':' in %r" % tok
+    return dict(keypat=keypat, items=items, sel=tok, count=0), None
+
+def _selectors_from(toks):
+    selectors, errors = [], []
+    for tok in toks:
+        sel, err = _parse_selector(tok)
+        (errors.append(err) if err else selectors.append(sel))
+    return selectors, errors
+
+def parse_ignores(text):
+    """Selectors from every @comment{dblpbib-ignore ...} block. Returns (selectors, errors)."""
+    toks = []
+    for m in IGNORE_BLOCK.finditer(text):
+        toks += _tokens(text[m.end():_match_brace(text, text.index("{", m.start()))])
+    return _selectors_from(toks)
+
+def cli_ignores(specs):
+    """Selectors from repeated --ignore SEL (same grammar). Returns (selectors, errors)."""
+    return _selectors_from([t for spec in specs for t in _tokens(spec)])
+
+def _first_entry_offset(text):
+    """Offset of the first real bibliography entry, skipping leading implicit comments and
+    any @comment / @string / @preamble blocks (brace-matched, so an @entry written inside a
+    comment doesn't fool us). None if the file has no such entry."""
+    i = 0
+    for m in re.finditer(r"@(\w+)\s*\{", text):
+        if m.start() < i:
+            continue                               # inside a block we already skipped over
+        if m.group(1).lower() in ("comment", "string", "preamble"):
+            i = _match_brace(text, m.end() - 1) + 1
+            continue
+        return m.start()
+    return None
+
+def _write_ignores(text, sels):
+    """Add selector tokens (one per line) to the @comment{dblpbib-ignore} block.  If the block
+    is absent it is created just above the first entry -- below any leading comments / @string /
+    @preamble -- so the file header stays on top.  Returns the new text (a minimal edit)."""
+    add = "".join("  %s\n" % s for s in sels)
+    m = IGNORE_BLOCK.search(text)
+    if m:                                          # append before the existing block's close
+        close = _match_brace(text, text.index("{", m.start()))
+        head = text[:close]
+        return head + ("" if head.endswith("\n") else "\n") + add + text[close:]
+    block = "@comment{dblpbib-ignore\n" + add + "}\n"
+    pos = _first_entry_offset(text)
+    if pos is None:                                # no entries -> append at the end
+        return text + ("" if not text or text.endswith("\n") else "\n") + "\n" + block
+    ls = text.rfind("\n", 0, pos) + 1              # start of the first entry's line
+    before = text[:ls]
+    sep = "" if not before or before.endswith("\n\n") else "\n"
+    return before + sep + block + "\n" + text[ls:]
+
+def _match_entry(sel, key, etype):
+    kp = sel["keypat"]
+    if kp == "*":
+        return True
+    if kp.startswith("@"):
+        return etype == kp[1:]
+    return key == kp
+
+def _match_item(item, p):
+    if item == "*":
+        return True
+    if item == "@":
+        return p["id"].rsplit(":", 1)[1] == "@"    # the whole-entry replace proposal
+    return p["field"] == item
+
+def apply_suppressions(findings, selectors):
+    """Flag suppressed proposals (p['suppressed']) and silenced no-match nags
+    (f['nag_suppressed']), and tally each selector's coverage (sel['count'])."""
+    for s in selectors:
+        s["count"] = 0
+    for f in findings:
+        for p in f.get("proposals", []):
+            p.setdefault("suppressed", False)
+        nag = f["status"] in ("fuzzy", "unknown")
+        for s in selectors:
+            if not _match_entry(s, f["key"], f.get("type", "")):
+                continue
+            for p in f.get("proposals", []):
+                if any(_match_item(it, p) for it in s["items"]):
+                    p["suppressed"] = True
+                    s["count"] += 1
+            if nag and "*" in s["items"] and not f.get("nag_suppressed"):
+                f["nag_suppressed"] = True
+                s["count"] += 1
+
+def _visible(f):
+    return [p for p in f.get("proposals", []) if not p.get("suppressed")]
+
+def _eff_status(f):
+    """The finding's status after suppression (only non-suppressed proposals count)."""
+    vis = _visible(f)
+    if any(p["op"] == "replace" for p in vis):
+        return "upgrade"
+    if any(p["op"] == "edit" and not p["review"] for p in vis):
+        return "mismatch"
+    if any(p["review"] for p in vis):
+        return "review"
+    if vis:
+        return "incomplete"
+    if f["status"] in ("fuzzy", "unknown") and not f.get("nag_suppressed"):
+        return f["status"]
+    return "ok"
+
+def tally(findings):
+    """Status counts using the post-suppression status, plus a `suppressed` total."""
+    counts = dict(ok=0, mismatch=0, review=0, upgrade=0, incomplete=0, fuzzy=0,
+                  unknown=0, suppressed=0)
+    for f in findings:
+        counts[_eff_status(f)] += 1
+        counts["suppressed"] += sum(1 for p in f.get("proposals", []) if p.get("suppressed"))
+        counts["suppressed"] += 1 if f.get("nag_suppressed") else 0
+    return counts
 
 # --- present / select / apply -------------------------------------------------
 
@@ -651,7 +816,7 @@ def _read_ids(spec):
     """IDs for --apply: '-' reads the leading token of each stdin line (fzf/peco output),
     otherwise a comma-separated list."""
     if spec == "-":
-        return [re.split(r"\s+", ln.strip(), 1)[0] for ln in sys.stdin if ln.strip()]
+        return [re.split(r"\s+", ln.strip(), maxsplit=1)[0] for ln in sys.stdin if ln.strip()]
     return [s.strip() for s in spec.split(",") if s.strip()]
 
 def _apply_ids(text, props, ids):
@@ -667,8 +832,11 @@ def _apply_ids(text, props, ids):
 
 def cmd_plan(findings):
     """One selectable proposal per line: id <TAB> op <TAB> summary. Plain text so it pipes
-    cleanly into fzf/peco (the id is the first field, read back by --apply / the preview)."""
+    cleanly into fzf/peco (the id is the first field, read back by --apply / the preview).
+    Suppressed proposals are omitted (they are not offered for selection)."""
     for p in all_proposals(findings):
+        if p.get("suppressed"):
+            continue
         print("%s\t%s\t%s" % (p["id"], _op_tag(p), _trunc(_summary(p))))
     return 0
 
@@ -692,15 +860,20 @@ def _write_or_echo(text, applied, bib, dry_run):
         with open(bib, "w", encoding="utf-8") as f:
             f.write(text)
 
-def cmd_apply(con, entries, text, short, spec, bib, dry_run, color):
+def cmd_apply(con, entries, text, short, spec, bib, dry_run, color, selectors=()):
     c = _colorer(color)
-    props = all_proposals(derive(con, entries, short))
-    if spec in ("safe", "all"):
-        ids = [p["id"] for p in props if spec == "all" or not p["review"]]
-    else:
-        ids = _read_ids(spec)
-    new_text, applied, missing = _apply_ids(text, props, ids)
+    props = all_proposals(derive(con, entries, short, selectors))
     log = sys.stderr if dry_run else sys.stdout
+    if spec in ("safe", "all"):     # bulk modes never touch suppressed proposals
+        ids = [p["id"] for p in props
+               if not p.get("suppressed") and (spec == "all" or not p["review"])]
+    else:                           # an explicitly named id overrides its suppression
+        ids = _read_ids(spec)
+        sup = {p["id"] for p in props if p.get("suppressed")}
+        for i in ids:
+            if i in sup:
+                print(c("33", "• overriding ignore for %s" % i), file=log)
+    new_text, applied, missing = _apply_ids(text, props, ids)
     for p in applied:
         print(c("32", "✓ %s" % p["id"]), file=log)
     for m in missing:
@@ -710,9 +883,9 @@ def cmd_apply(con, entries, text, short, spec, bib, dry_run, color):
     _write_or_echo(new_text, applied, bib, dry_run)
     return 0
 
-def cmd_pick(con, entries, text, short, bib, db, dry_run, color):
-    findings = derive(con, entries, short)
-    props = all_proposals(findings)
+def cmd_pick(con, entries, text, short, bib, db, dry_run, color, selectors=()):
+    findings = derive(con, entries, short, selectors)
+    props = [p for p in all_proposals(findings) if not p.get("suppressed")]
     if not props:
         sys.stderr.write("nothing to pick (no proposals)\n")
         return 0
@@ -736,7 +909,7 @@ def cmd_pick(con, entries, text, short, bib, db, dry_run, color):
     else:
         cmd = [picker]
     sel = subprocess.run(cmd, input="\n".join(lines) + "\n", capture_output=True, text=True)
-    ids = [re.split(r"\s+", ln.strip(), 1)[0] for ln in sel.stdout.splitlines() if ln.strip()]
+    ids = [re.split(r"\s+", ln.strip(), maxsplit=1)[0] for ln in sel.stdout.splitlines() if ln.strip()]
     if not ids:
         sys.stderr.write("no selection\n")
         return 0
@@ -745,6 +918,33 @@ def cmd_pick(con, entries, text, short, bib, db, dry_run, color):
     for p in applied:
         print(c("32", "✓ %s" % p["id"]), file=(sys.stderr if dry_run else sys.stdout))
     _write_or_echo(new_text, applied, bib, dry_run)
+    return 0
+
+def cmd_mute(con, entries, text, short, spec, bib, dry_run, selectors, color):
+    """Write the named proposals into the in-file @comment{dblpbib-ignore} block, silencing
+    them for good. `spec`: a comma-separated id list; '-' to read ids from stdin (e.g.
+    `--plan | fzf | dblpbib BIB --mute -`); or 'all' for every still-warning proposal."""
+    c = _colorer(color)
+    log = sys.stderr if dry_run else sys.stdout
+    props = all_proposals(derive(con, entries, short, selectors))
+    if spec == "all":
+        ids = [p["id"] for p in props if not p.get("suppressed")]   # everything still warning
+    else:
+        known = {p["id"] for p in props}
+        ids = []
+        for i in _read_ids(spec):
+            if i in known:
+                ids.append(i)
+            else:
+                print(c("33", "• no such proposal, skipped: %s" % i), file=log)
+    have = {s["sel"] for s in parse_ignores(text)[0]}              # dedup against the block
+    add = [i for i in dict.fromkeys(ids) if i not in have]        # unique, order-preserving
+    if not add:
+        print(c("90", "nothing to mute"), file=log)
+        return 0
+    for s in add:
+        print(c("32", "muted %s" % s), file=log)
+    _write_or_echo(_write_ignores(text, add), add, bib, dry_run)
     return 0
 
 # --- main ---------------------------------------------------------------------
@@ -774,6 +974,17 @@ def main():
                          "venue proposals then offer shortening rather than expansion")
     ap.add_argument("-n", "--dry-run", action="store_true",
                     help="with --apply/--pick, write the result to stdout instead of the file")
+    ap.add_argument("--ignore", action="append", default=[], metavar="SEL",
+                    help="suppress proposals matching SEL (key:field[,field] / *:field / "
+                         "@type:field); repeatable. Ephemeral; durable rules go in a "
+                         "@comment{dblpbib-ignore ...} block in the .bib.")
+    ap.add_argument("--mute", metavar="IDS", nargs="?", const="-", default=None,
+                    help="write proposals into the in-file @comment{dblpbib-ignore} block to "
+                         "silence them for good: a comma-separated id list; '-' (or no value) "
+                         "to read ids from stdin (e.g. --plan | fzf | … --mute -); or 'all' for "
+                         "every still-warning proposal. With -n, print the new file to stdout.")
+    ap.add_argument("-a", "--show-suppressed", action="store_true",
+                    help="also show suppressed (ignored) proposals, dimmed")
     ap.add_argument("--json", action="store_true", help="emit findings as JSON (report mode)")
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="also list entries that are OK (hidden by default)")
@@ -800,57 +1011,88 @@ def main():
         return add_entries(con, args, text, entries, color)
     if args.show is not None:
         return cmd_show(con, entries, args.short, args.show, color)
+
+    selectors, ig_err = parse_ignores(text)         # @comment{dblpbib-ignore ...} + --ignore
+    cli_sel, cli_err = cli_ignores(args.ignore)
+    selectors += cli_sel
+    for e in ig_err + cli_err:
+        sys.stderr.write("dblpbib: %s\n" % e)
+
     if args.plan:
-        return cmd_plan(derive(con, entries, args.short))
+        return cmd_plan(derive(con, entries, args.short, selectors))
     if args.apply is not None:
         return cmd_apply(con, entries, text, args.short, args.apply, args.bib,
-                         args.dry_run, color)
+                         args.dry_run, color, selectors)
     if args.pick:
         return cmd_pick(con, entries, text, args.short, args.bib, args.db,
-                        args.dry_run, color)
+                        args.dry_run, color, selectors)
+    if args.mute is not None:
+        return cmd_mute(con, entries, text, args.short, args.mute, args.bib,
+                        args.dry_run, selectors, color)
 
     # default: read-only report
-    findings = derive(con, entries, args.short)
-    counts = dict(ok=0, mismatch=0, review=0, upgrade=0, incomplete=0, fuzzy=0, unknown=0)
-    for f in findings:
-        counts[f["status"]] += 1
+    findings = derive(con, entries, args.short, selectors)
+    counts = tally(findings)                        # statuses after suppression
     if args.json:
         print(json.dumps(dict(summary=counts, findings=findings),
                          ensure_ascii=False, indent=2))
     else:
-        report(findings, counts, color, args.verbose)
-    return 1 if counts["mismatch"] else 0       # CI gate: confirmed errors fail
+        report(findings, selectors, counts, color, args.verbose, args.show_suppressed)
+    return 1 if counts["mismatch"] else 0       # CI gate: confirmed (un-suppressed) errors fail
 
 # finding status -> ANSI colour for the leading dot (severity at a glance).
 STYLE = dict(ok="32", mismatch="31", review="33", upgrade="35",
              incomplete="36", fuzzy="90", unknown="90")
 
-def report(findings, counts, color, verbose):
+def _print_proposal(c, p, dim=False):
+    """One proposal line. `dim` renders a suppressed proposal greyed out with a [ignored] tag."""
+    sym, op, col = _op_style(p)
+    if dim:
+        sym, col = "·", "90"
+    head = "  %s %s %s" % (c(col + ";1", sym), c(col, "%-4s" % op),
+                           c("90" if dim else "1", "%-10s" % p["field"]))
+    note = "  " + c("90" if dim else "33", _trunc(p["note"], 48)) if p["note"] else ""
+    tail = c("90", ("[ignored] " if dim else "") + p["id"])
+    if p["op"] == "replace":
+        print("%s%s  %s" % (head, note, tail))
+    elif p["op"] == "add":
+        print("%s %s  %s" % (head, c("90" if dim else "32", _trunc(p["dblp"], 64)), tail))
+    else:                          # edit: before -> after (truncated; full text via --show)
+        print("%s %s %s %s%s  %s"
+              % (head, c("90" if dim else "31", _trunc(p["bib"], 32)), c("90", "→"),
+                 c("90" if dim else "32", _trunc(p["dblp"], 48)), note, tail))
+
+def report(findings, selectors, counts, color, verbose, show_suppressed):
     c = _colorer(color)
     for f in findings:
-        if f["status"] == "ok" and not verbose:    # OK entries shown only with -v
-            continue
-        print("%s %s  %s" % (c(STYLE[f["status"]], "●"), c("1", f["title"]), c("90", f["key"])))
-        for p in f.get("proposals", []):
-            sym, op, col = _op_style(p)
-            head = "  %s %s %s" % (c(col + ";1", sym), c(col, "%-4s" % op),
-                                   c("1", "%-10s" % p["field"]))
-            note = "  " + c("33", _trunc(p["note"], 48)) if p["note"] else ""
-            if p["op"] == "replace":
-                print("%s%s  %s" % (head, note, c("90", p["id"])))
-            elif p["op"] == "add":
-                print("%s %s  %s" % (head, c("32", _trunc(p["dblp"], 64)), c("90", p["id"])))
-            else:                                              # edit: before -> after (truncated; full text via --show)
-                print("%s %s %s %s%s  %s"
-                      % (head, c("31", _trunc(p["bib"], 32)), c("90", "→"),
-                         c("32", _trunc(p["dblp"], 48)), note, c("90", p["id"])))
-        for cand in f.get("candidates", []):
-            print("  %s %s %-8s %s"
-                  % (c("90", "~"), cand["year"], cand["venue"], cand["title"]))
-        if f["status"] in ("fuzzy", "unknown"):
-            print("  %s" % c("90", "(no exact match — may be out of DB scope; check manually)"))
+        eff = _eff_status(f)
+        vis = _visible(f)
+        supp = [p for p in f.get("proposals", []) if p.get("suppressed")]
+        nag_live = f["status"] in ("fuzzy", "unknown") and not f.get("nag_suppressed")
+        hidden = supp or f.get("nag_suppressed")
+        if not vis and not nag_live and not (show_suppressed and hidden) and not (verbose and eff == "ok"):
+            continue                               # nothing left to show for this entry
+        print("%s %s  %s" % (c(STYLE[eff], "●"), c("1", f["title"]), c("90", f["key"])))
+        for p in vis:
+            _print_proposal(c, p)
+        if show_suppressed:
+            for p in supp:
+                _print_proposal(c, p, dim=True)
+        if nag_live or (show_suppressed and f.get("nag_suppressed")):
+            for cand in f.get("candidates", []):
+                print("  %s %s %-8s %s"
+                      % (c("90", "~"), cand["year"], cand["venue"], cand["title"]))
+            tag = "" if nag_live else c("90", " [ignored]")
+            print("  %s%s" % (c("90", "(no exact match — may be out of DB scope; check manually)"), tag))
+    for s in selectors:                            # stale ignores (unused-noqa equivalent)
+        if s["count"] == 0:
+            print(c("33", "ignore: matched nothing (stale): %s" % s["sel"]))
+    if show_suppressed:
+        for s in selectors:
+            if s["count"]:
+                print(c("90", "ignore: %s → %d" % (s["sel"], s["count"])))
     parts = [("%d %s" % (counts[k], k)) for k in
-             ("ok", "mismatch", "review", "upgrade", "incomplete", "fuzzy", "unknown")
+             ("ok", "mismatch", "review", "upgrade", "incomplete", "fuzzy", "unknown", "suppressed")
              if counts[k]]
     print("\n%s %s" % (c("1", "summary:"), ", ".join(parts) or "nothing to check"))
     if any(counts[k] for k in ("mismatch", "review", "incomplete", "upgrade")):
