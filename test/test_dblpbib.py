@@ -9,8 +9,12 @@ import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
-import dblpbib as bc  # noqa: E402
+# dblpbib is an executable CLI with no .py extension, so load it from its path.
+from importlib.machinery import SourceFileLoader            # noqa: E402
+from importlib.util import module_from_spec, spec_from_loader  # noqa: E402
+_loader = SourceFileLoader("dblpbib", os.path.join(ROOT, "dblpbib"))
+bc = module_from_spec(spec_from_loader("dblpbib", _loader))
+_loader.exec_module(bc)
 
 ECOLS = ("key", "type", "venue", "year", "authors", "title", "title_norm",
          "journal", "booktitle", "volume", "number", "pages", "doi", "ee", "crossref")

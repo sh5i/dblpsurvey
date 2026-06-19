@@ -33,11 +33,11 @@ to-end-of-line comment:
 
 keypat is a cite key, `*` (any entry) or `@type`; a field is a name, `@` (the whole-entry
 replace) or `*` (everything for that entry).  A suppressed proposal is hidden, omitted from
---apply / --pick, and does NOT count toward the CI-failing mismatches; a selector that
+--apply / --mute, and does NOT count toward the CI-failing mismatches; a selector that
 matches nothing is reported as stale.
 
-The DB path may be given via --db or the DBLP_DB environment variable.  A missing
-database is treated as "skip" (exit 0) so it never blocks a build.
+The DB defaults to dblp.db beside this script (override with --db or the DBLP_DB env var).
+A missing database is treated as "skip" (exit 0) so it never blocks a build.
 """
 
 import argparse
@@ -51,6 +51,8 @@ import sqlite3
 import subprocess
 import sys
 import unicodedata
+
+_HERE = os.path.dirname(os.path.abspath(__file__))   # for the default dblp.db location
 
 # --- normalisation helpers (must mirror dblpsurvey's extractor) ---------------
 
@@ -842,27 +844,29 @@ def _candidates(findings, safe):
     return [p for p in all_proposals(findings)
             if not p.get("suppressed") and (not safe or not p["review"])]
 
-def _pick(props, findings, color):
+def _pick(props, findings):
     """Interactive multi-select over `props` via fzf (with preview) or peco.  Returns the
-    chosen ids, or None if no picker is installed (the caller treats that as an error)."""
+    chosen ids, or None if no picker is installed (the caller treats that as an error).
+    fzf renders ANSI (--ansi), so its list rows are coloured like the report; peco gets the
+    plain tab form. Each row hides the id in column 1 and shows the rendered line."""
     picker = shutil.which("fzf") or shutil.which("peco")
     if not picker:
         sys.stderr.write("interactive mode needs fzf or peco; or compose with a pipe: "
                          "dblpbib BIB --oneline | <picker> | dblpbib BIB --apply=stdin\n")
         return None
-    is_fzf = os.path.basename(picker) == "fzf"
-    fmap = {p["id"]: f for f in findings for p in f.get("proposals", [])}
-    lines = []
-    for p in props:
-        row = "%s\t%s\t%s" % (p["id"], _op_tag(p), _trunc(_summary(p)))
-        if is_fzf:   # embed the rendered preview (base64) -> fzf shows it with no re-invocation
-            row += "\t" + base64.b64encode(render_show(fmap[p["id"]], p, True).encode()).decode()
-        lines.append(row)
-    cmd = ([picker, "-m", "--ansi", "--delimiter", "\t", "--with-nth", "2,3",
-            "--preview", "printf %s {4} | base64 --decode", "--preview-window", "down,45%,wrap"]
-           if is_fzf else [picker])
+    if os.path.basename(picker) == "fzf":
+        cc = _colorer(True)
+        fmap = {p["id"]: f for f in findings for p in f.get("proposals", [])}
+        lines = ["%s\t%s\t%s" % (p["id"], _proposal_line(cc, p, indent=""),
+                                 base64.b64encode(render_show(fmap[p["id"]], p, True).encode()).decode())
+                 for p in props]
+        cmd = [picker, "-m", "--ansi", "--delimiter", "\t", "--with-nth", "2",
+               "--preview", "printf %s {3} | base64 --decode", "--preview-window", "down,45%,wrap"]
+    else:
+        lines = ["%s\t%s\t%s" % (p["id"], _op_tag(p), _trunc(_summary(p))) for p in props]
+        cmd = [picker]
     sel = subprocess.run(cmd, input="\n".join(lines) + "\n", capture_output=True, text=True)
-    return [re.split(r"\s+", ln.strip(), maxsplit=1)[0] for ln in sel.stdout.splitlines() if ln.strip()]
+    return [i for ln in sel.stdout.splitlines() if (i := _line_id(ln))]
 
 def _apply_ids(text, props, ids):
     """Apply the proposals named by `ids`. Returns (new_text, applied, missing). If a
@@ -882,7 +886,7 @@ def cmd_oneline(findings, safe, color):
     omitted; with --safe only confident (non-review) proposals are listed."""
     c = _colorer(color)
     for p in _candidates(findings, safe):
-        _print_proposal(c, p, indent="")
+        print(_proposal_line(c, p, indent=""))
     return 0
 
 def cmd_show(con, entries, short, idstr, color):
@@ -924,7 +928,7 @@ def cmd_apply(con, entries, text, short, mode, safe, bib, dry_run, color, select
         if not cands:
             print(c("90", "nothing to apply"), file=log)
             return 0
-        ids = [p["id"] for p in cands] if mode == "all" else _pick(cands, findings, color)
+        ids = [p["id"] for p in cands] if mode == "all" else _pick(cands, findings)
         if ids is None:                          # no picker installed
             return 1
     new_text, applied, missing = _apply_ids(text, props, ids)
@@ -957,7 +961,7 @@ def cmd_mute(con, entries, text, short, mode, safe, bib, dry_run, selectors, col
         if not cands:
             print(c("90", "nothing to mute"), file=log)
             return 0
-        ids = [p["id"] for p in cands] if mode == "all" else _pick(cands, findings, color)
+        ids = [p["id"] for p in cands] if mode == "all" else _pick(cands, findings)
         if ids is None:                          # no picker installed
             return 1
     have = {s["sel"] for s in parse_ignores(text)[0]}              # dedup against the block
@@ -975,8 +979,8 @@ def cmd_mute(con, entries, text, short, mode, safe, bib, dry_run, selectors, col
 def main():
     ap = argparse.ArgumentParser(description="Check/fix a .bib file against dblp.db")
     ap.add_argument("bib")
-    ap.add_argument("--db", default=os.environ.get("DBLP_DB", ""),
-                    help="path to dblp.db (or set DBLP_DB)")
+    ap.add_argument("--db", default=os.environ.get("DBLP_DB") or os.path.join(_HERE, "dblp.db"),
+                    help="path to dblp.db (default: dblp.db beside this script; or set DBLP_DB)")
     MODES = ("interactive", "stdin", "all")
     ap.add_argument("--oneline", action="store_true",
                     help="flat one-proposal-per-line view of the report (no entry grouping or "
@@ -1013,17 +1017,26 @@ def main():
     ap.add_argument("--json", action="store_true", help="emit findings as JSON (report mode)")
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="also list entries that are OK (hidden by default)")
-    ap.add_argument("--no-color", action="store_true", help="disable ANSI colours")
+    ap.add_argument("--color", choices=("auto", "always", "never"), default="auto",
+                    help="when to colour output: 'auto' (default; only on a tty), 'always' "
+                         "(e.g. `--oneline --color=always | fzf --ansi`), or 'never'")
+    ap.add_argument("--no-color", action="store_const", const="never", dest="color",
+                    help="alias for --color=never")
     args = ap.parse_args()
 
-    base = (not args.no_color) and "NO_COLOR" not in os.environ
-    # --show feeds the fzf preview pane (not a tty), which renders ANSI -> keep colour there.
-    color = base and (args.show is not None or sys.stdout.isatty())
+    # auto colours on a tty (and the --show preview pane); NO_COLOR / never force it off.
+    if args.color == "never" or "NO_COLOR" in os.environ:
+        color = False
+    elif args.color == "always":
+        color = True
+    else:
+        color = args.show is not None or sys.stdout.isatty()
 
     if not args.db or not os.path.exists(args.db):
         sys.stderr.write(
-            "dblpbib: no dblp.db (set --db or DBLP_DB); skipping.\n"
-            "  Build one with dblpsurvey to enable offline bib verification.\n")
+            "dblpbib: no dblp.db at %s (set --db or DBLP_DB); skipping.\n"
+            "  Build one with dblpsurvey to enable offline bib verification.\n"
+            % (args.db or "?"))
         return 0
 
     con = sqlite3.connect(args.db)
@@ -1066,10 +1079,10 @@ def main():
 STYLE = dict(ok="32", mismatch="31", review="33", upgrade="35",
              incomplete="36", fuzzy="90", unknown="90")
 
-def _print_proposal(c, p, dim=False, indent="  "):
-    """One proposal line (id trailing). `dim` greys out a suppressed proposal with a [ignored]
-    tag; `indent` is the leading pad (the report indents under an entry header, --oneline does
-    not)."""
+def _proposal_line(c, p, dim=False, indent="  "):
+    """One proposal line as a string (id trailing).  `dim` greys out a suppressed proposal with
+    a [ignored] tag; `indent` is the leading pad (the report indents under an entry header;
+    --oneline and the fzf list do not).  Shared by the report, --oneline and the picker."""
     sym, op, col = _op_style(p)
     if dim:
         sym, col = "·", "90"
@@ -1078,13 +1091,12 @@ def _print_proposal(c, p, dim=False, indent="  "):
     note = "  " + c("90" if dim else "33", _trunc(p["note"], 48)) if p["note"] else ""
     tail = c("90", ("[ignored] " if dim else "") + p["id"])
     if p["op"] == "replace":
-        print("%s%s  %s" % (head, note, tail))
-    elif p["op"] == "add":
-        print("%s %s  %s" % (head, c("90" if dim else "32", _trunc(p["dblp"], 64)), tail))
-    else:                          # edit: before -> after (truncated; full text via --show)
-        print("%s %s %s %s%s  %s"
-              % (head, c("90" if dim else "31", _trunc(p["bib"], 32)), c("90", "→"),
-                 c("90" if dim else "32", _trunc(p["dblp"], 48)), note, tail))
+        return "%s%s  %s" % (head, note, tail)
+    if p["op"] == "add":
+        return "%s %s  %s" % (head, c("90" if dim else "32", _trunc(p["dblp"], 64)), tail)
+    return ("%s %s %s %s%s  %s"       # edit: before -> after (truncated; full text via --show)
+            % (head, c("90" if dim else "31", _trunc(p["bib"], 32)), c("90", "→"),
+               c("90" if dim else "32", _trunc(p["dblp"], 48)), note, tail))
 
 def report(findings, selectors, counts, color, verbose, show_suppressed):
     c = _colorer(color)
@@ -1098,10 +1110,10 @@ def report(findings, selectors, counts, color, verbose, show_suppressed):
             continue                               # nothing left to show for this entry
         print("%s %s  %s" % (c(STYLE[eff], "●"), c("1", f["title"]), c("90", f["key"])))
         for p in vis:
-            _print_proposal(c, p)
+            print(_proposal_line(c, p))
         if show_suppressed:
             for p in supp:
-                _print_proposal(c, p, dim=True)
+                print(_proposal_line(c, p, dim=True))
         if nag_live or (show_suppressed and f.get("nag_suppressed")):
             for cand in f.get("candidates", []):
                 print("  %s %s %-8s %s"
