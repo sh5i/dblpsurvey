@@ -94,9 +94,6 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(text[fld.start:fld.end], "{2019}")     # offsets span the value token
         self.assertIn("year = {2021}", bc.apply_fixes(text, [(fld.start, fld.end, "{2021}")]))
 
-    def test_read_ids(self):
-        self.assertEqual(bc._read_ids("a:b, c:d ,"), ["a:b", "c:d"])
-
     def test_parse_selector(self):
         s, e = bc._parse_selector("Knuth:1984:year")
         self.assertIsNone(e)

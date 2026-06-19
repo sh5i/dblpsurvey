@@ -10,17 +10,15 @@ The fix model is select-then-apply (like `git add -p`).  Every proposed change h
 stable id `citekey:field` (or `citekey:@` for an arXiv->published whole-entry swap):
 
   dblpbib refs.bib                       # read-only report (each proposal shows its id)
-  dblpbib refs.bib --plan                # one proposal/line: id <tab> kind <tab> summary
+  dblpbib refs.bib --apply               # pick fixes interactively (fzf/peco), then apply
+  dblpbib refs.bib --apply=all           # apply every proposal (add --safe for confident only)
+  dblpbib refs.bib --plan | fzf | dblpbib refs.bib --apply=stdin   # compose your own picker
+  dblpbib refs.bib --mute                # pick proposals to silence for good (interactively)
+  dblpbib refs.bib --mute=all            # silence every still-warning proposal for good
   dblpbib refs.bib --show ID             # one proposal's full before/after (fzf preview)
-  dblpbib refs.bib --pick                # choose via fzf (preview) / peco, then apply
-  dblpbib refs.bib --plan | fzf -m | dblpbib refs.bib --apply -    # the composable form
-  dblpbib refs.bib --apply key:year,key:pages    # apply named ids
-  dblpbib refs.bib --apply safe          # non-interactive: all confirmed fixes + fills
   dblpbib refs.bib --add 10.1145/xxxxxxx # fetch an entry from the DB and append it
   dblpbib refs.bib -a                    # also show suppressed (ignored) proposals
   dblpbib refs.bib --ignore key:doi      # suppress one proposal for this run (ephemeral)
-  dblpbib refs.bib --plan | fzf | dblpbib refs.bib --mute -   # silence chosen ones for good
-  dblpbib refs.bib --mute all            # silence every still-warning proposal for good
 
 Proposals you have deliberately decided not to change can be silenced.  An in-file
 block (travels with the .bib; @comment is ignored by BibTeX/biblatex) lists selectors
@@ -812,12 +810,37 @@ def render_show(f, p, color):
         out.append("  %s %s" % (c("90", "dblp"), c("32", p["dblp"])))
     return "\n".join(out)
 
-def _read_ids(spec):
-    """IDs for --apply: '-' reads the leading token of each stdin line (fzf/peco output),
-    otherwise a comma-separated list."""
-    if spec == "-":
-        return [re.split(r"\s+", ln.strip(), maxsplit=1)[0] for ln in sys.stdin if ln.strip()]
-    return [s.strip() for s in spec.split(",") if s.strip()]
+def _read_stdin_ids():
+    """The leading whitespace token of each non-blank stdin line (fzf/peco/--plan output)."""
+    return [re.split(r"\s+", ln.strip(), maxsplit=1)[0] for ln in sys.stdin if ln.strip()]
+
+def _candidates(findings, safe):
+    """Proposals offered for selection: non-suppressed, and -- with `safe` -- only the
+    confident (non-review) ones."""
+    return [p for p in all_proposals(findings)
+            if not p.get("suppressed") and (not safe or not p["review"])]
+
+def _pick(props, findings, color):
+    """Interactive multi-select over `props` via fzf (with preview) or peco.  Returns the
+    chosen ids, or None if no picker is installed (the caller treats that as an error)."""
+    picker = shutil.which("fzf") or shutil.which("peco")
+    if not picker:
+        sys.stderr.write("interactive mode needs fzf or peco; or compose with a pipe: "
+                         "dblpbib BIB --plan | <picker> | dblpbib BIB --apply=stdin\n")
+        return None
+    is_fzf = os.path.basename(picker) == "fzf"
+    fmap = {p["id"]: f for f in findings for p in f.get("proposals", [])}
+    lines = []
+    for p in props:
+        row = "%s\t%s\t%s" % (p["id"], _op_tag(p), _trunc(_summary(p)))
+        if is_fzf:   # embed the rendered preview (base64) -> fzf shows it with no re-invocation
+            row += "\t" + base64.b64encode(render_show(fmap[p["id"]], p, True).encode()).decode()
+        lines.append(row)
+    cmd = ([picker, "-m", "--ansi", "--delimiter", "\t", "--with-nth", "2,3",
+            "--preview", "printf %s {4} | base64 --decode", "--preview-window", "down,45%,wrap"]
+           if is_fzf else [picker])
+    sel = subprocess.run(cmd, input="\n".join(lines) + "\n", capture_output=True, text=True)
+    return [re.split(r"\s+", ln.strip(), maxsplit=1)[0] for ln in sel.stdout.splitlines() if ln.strip()]
 
 def _apply_ids(text, props, ids):
     """Apply the proposals named by `ids`. Returns (new_text, applied, missing). If a
@@ -830,13 +853,11 @@ def _apply_ids(text, props, ids):
               if p["op"] == "replace" or p["id"].rsplit(":", 1)[0] not in replaced]
     return apply_fixes(text, [p["edit"] for p in chosen]), chosen, missing
 
-def cmd_plan(findings):
-    """One selectable proposal per line: id <TAB> op <TAB> summary. Plain text so it pipes
-    cleanly into fzf/peco (the id is the first field, read back by --apply / the preview).
-    Suppressed proposals are omitted (they are not offered for selection)."""
-    for p in all_proposals(findings):
-        if p.get("suppressed"):
-            continue
+def cmd_plan(findings, safe):
+    """One selectable proposal per line: id <TAB> op <TAB> summary -- plain text to pipe into
+    fzf/peco (the id is the first field, read back by --apply=stdin).  Suppressed proposals are
+    omitted; with --safe only confident (non-review) proposals are listed."""
+    for p in _candidates(findings, safe):
         print("%s\t%s\t%s" % (p["id"], _op_tag(p), _trunc(_summary(p))))
     return 0
 
@@ -860,19 +881,28 @@ def _write_or_echo(text, applied, bib, dry_run):
         with open(bib, "w", encoding="utf-8") as f:
             f.write(text)
 
-def cmd_apply(con, entries, text, short, spec, bib, dry_run, color, selectors=()):
+def cmd_apply(con, entries, text, short, mode, safe, bib, dry_run, color, selectors=()):
+    """Accept proposals.  mode: 'interactive' (pick via fzf/peco), 'stdin' (ids piped in), or
+    'all' (every candidate).  Candidates are non-suppressed (and, with `safe`, only non-review);
+    an id named via stdin still applies even if it is suppressed (explicit overrides ignore)."""
     c = _colorer(color)
-    props = all_proposals(derive(con, entries, short, selectors))
     log = sys.stderr if dry_run else sys.stdout
-    if spec in ("safe", "all"):     # bulk modes never touch suppressed proposals
-        ids = [p["id"] for p in props
-               if not p.get("suppressed") and (spec == "all" or not p["review"])]
-    else:                           # an explicitly named id overrides its suppression
-        ids = _read_ids(spec)
+    findings = derive(con, entries, short, selectors)
+    props = all_proposals(findings)
+    if mode == "stdin":
+        ids = _read_stdin_ids()
         sup = {p["id"] for p in props if p.get("suppressed")}
         for i in ids:
             if i in sup:
                 print(c("33", "• overriding ignore for %s" % i), file=log)
+    else:
+        cands = _candidates(findings, safe)
+        if not cands:
+            print(c("90", "nothing to apply"), file=log)
+            return 0
+        ids = [p["id"] for p in cands] if mode == "all" else _pick(cands, findings, color)
+        if ids is None:                          # no picker installed
+            return 1
     new_text, applied, missing = _apply_ids(text, props, ids)
     for p in applied:
         print(c("32", "✓ %s" % p["id"]), file=log)
@@ -883,60 +913,29 @@ def cmd_apply(con, entries, text, short, spec, bib, dry_run, color, selectors=()
     _write_or_echo(new_text, applied, bib, dry_run)
     return 0
 
-def cmd_pick(con, entries, text, short, bib, db, dry_run, color, selectors=()):
-    findings = derive(con, entries, short, selectors)
-    props = [p for p in all_proposals(findings) if not p.get("suppressed")]
-    if not props:
-        sys.stderr.write("nothing to pick (no proposals)\n")
-        return 0
-    picker = shutil.which("fzf") or shutil.which("peco")
-    if not picker:
-        sys.stderr.write("--pick needs fzf or peco; or compose: "
-                         "dblpbib BIB --plan | <picker> | dblpbib BIB --apply -\n")
-        return 1
-    is_fzf = os.path.basename(picker) == "fzf"
-    fmap = {p["id"]: f for f in findings for p in f["proposals"]}
-    lines = []
-    for p in props:
-        row = "%s\t%s\t%s" % (p["id"], _op_tag(p), _trunc(_summary(p)))
-        if is_fzf:   # embed the rendered preview (base64) -> fzf shows it with no re-invocation
-            row += "\t" + base64.b64encode(render_show(fmap[p["id"]], p, True).encode()).decode()
-        lines.append(row)
-    if is_fzf:
-        cmd = [picker, "-m", "--ansi", "--delimiter", "\t", "--with-nth", "2,3",
-               "--preview", "printf %s {4} | base64 --decode",
-               "--preview-window", "down,45%,wrap"]
-    else:
-        cmd = [picker]
-    sel = subprocess.run(cmd, input="\n".join(lines) + "\n", capture_output=True, text=True)
-    ids = [re.split(r"\s+", ln.strip(), maxsplit=1)[0] for ln in sel.stdout.splitlines() if ln.strip()]
-    if not ids:
-        sys.stderr.write("no selection\n")
-        return 0
-    new_text, applied, _ = _apply_ids(text, props, ids)
-    c = _colorer(color)
-    for p in applied:
-        print(c("32", "✓ %s" % p["id"]), file=(sys.stderr if dry_run else sys.stdout))
-    _write_or_echo(new_text, applied, bib, dry_run)
-    return 0
-
-def cmd_mute(con, entries, text, short, spec, bib, dry_run, selectors, color):
-    """Write the named proposals into the in-file @comment{dblpbib-ignore} block, silencing
-    them for good. `spec`: a comma-separated id list; '-' to read ids from stdin (e.g.
-    `--plan | fzf | dblpbib BIB --mute -`); or 'all' for every still-warning proposal."""
+def cmd_mute(con, entries, text, short, mode, safe, bib, dry_run, selectors, color):
+    """Write proposals into the in-file @comment{dblpbib-ignore} block, silencing them for
+    good.  mode: 'interactive' (pick via fzf/peco), 'stdin' (ids piped in), or 'all' (every
+    candidate; with `safe`, only the confident/non-review ones)."""
     c = _colorer(color)
     log = sys.stderr if dry_run else sys.stdout
-    props = all_proposals(derive(con, entries, short, selectors))
-    if spec == "all":
-        ids = [p["id"] for p in props if not p.get("suppressed")]   # everything still warning
-    else:
-        known = {p["id"] for p in props}
+    findings = derive(con, entries, short, selectors)
+    known = {p["id"] for p in all_proposals(findings)}
+    if mode == "stdin":
         ids = []
-        for i in _read_ids(spec):
+        for i in _read_stdin_ids():
             if i in known:
                 ids.append(i)
             else:
                 print(c("33", "• no such proposal, skipped: %s" % i), file=log)
+    else:
+        cands = _candidates(findings, safe)
+        if not cands:
+            print(c("90", "nothing to mute"), file=log)
+            return 0
+        ids = [p["id"] for p in cands] if mode == "all" else _pick(cands, findings, color)
+        if ids is None:                          # no picker installed
+            return 1
     have = {s["sel"] for s in parse_ignores(text)[0]}              # dedup against the block
     add = [i for i in dict.fromkeys(ids) if i not in have]        # unique, order-preserving
     if not add:
@@ -954,16 +953,22 @@ def main():
     ap.add_argument("bib")
     ap.add_argument("--db", default=os.environ.get("DBLP_DB", ""),
                     help="path to dblp.db (or set DBLP_DB)")
+    MODES = ("interactive", "stdin", "all")
     ap.add_argument("--plan", action="store_true",
                     help="list selectable proposals, one per line "
-                         "(id <tab> kind <tab> summary); pipe into fzf/peco")
+                         "(id <tab> op <tab> summary); pipe into fzf/peco. Honours --safe")
     ap.add_argument("--show", metavar="ID", default=None,
                     help="show one proposal's full before/after (used as the fzf preview)")
-    ap.add_argument("--apply", metavar="IDS", nargs="?", const="-", default=None,
-                    help="apply proposals: a comma-separated id list; '-' (or no value) to "
-                         "read ids from stdin (fzf/peco output); or 'safe' (all fix+fill) / 'all'")
-    ap.add_argument("--pick", action="store_true",
-                    help="choose proposals interactively via fzf (with preview) or peco, then apply")
+    ap.add_argument("--apply", nargs="?", const="interactive", choices=MODES, metavar="MODE",
+                    help="apply proposals. MODE: 'interactive' (default; pick via fzf/peco), "
+                         "'stdin' (ids piped in, e.g. from --plan|fzf), or 'all'. With --safe, "
+                         "'all'/'interactive' offer only confident (non-review) proposals.")
+    ap.add_argument("--mute", nargs="?", const="interactive", choices=MODES, metavar="MODE",
+                    help="silence proposals for good by writing them into the in-file "
+                         "@comment{dblpbib-ignore} block. Same MODEs as --apply.")
+    ap.add_argument("--safe", action="store_true",
+                    help="restrict the recommended set to confident (non-review) proposals "
+                         "(affects --plan and the 'all'/'interactive' modes of --apply/--mute)")
     ap.add_argument("--add", action="append", default=[], metavar="[KEY=]ID",
                     help="add an entry fetched from the DB by DOI / arXiv id / DBLP key "
                          "and append it to the .bib (repeatable; KEY sets the cite key, "
@@ -973,16 +978,11 @@ def main():
                          "conference's 'Proc. {ACRONYM}') instead of the full official name; "
                          "venue proposals then offer shortening rather than expansion")
     ap.add_argument("-n", "--dry-run", action="store_true",
-                    help="with --apply/--pick, write the result to stdout instead of the file")
+                    help="with --apply/--mute, write the result to stdout instead of the file")
     ap.add_argument("--ignore", action="append", default=[], metavar="SEL",
                     help="suppress proposals matching SEL (key:field[,field] / *:field / "
                          "@type:field); repeatable. Ephemeral; durable rules go in a "
                          "@comment{dblpbib-ignore ...} block in the .bib.")
-    ap.add_argument("--mute", metavar="IDS", nargs="?", const="-", default=None,
-                    help="write proposals into the in-file @comment{dblpbib-ignore} block to "
-                         "silence them for good: a comma-separated id list; '-' (or no value) "
-                         "to read ids from stdin (e.g. --plan | fzf | … --mute -); or 'all' for "
-                         "every still-warning proposal. With -n, print the new file to stdout.")
     ap.add_argument("-a", "--show-suppressed", action="store_true",
                     help="also show suppressed (ignored) proposals, dimmed")
     ap.add_argument("--json", action="store_true", help="emit findings as JSON (report mode)")
@@ -1019,15 +1019,12 @@ def main():
         sys.stderr.write("dblpbib: %s\n" % e)
 
     if args.plan:
-        return cmd_plan(derive(con, entries, args.short, selectors))
+        return cmd_plan(derive(con, entries, args.short, selectors), args.safe)
     if args.apply is not None:
-        return cmd_apply(con, entries, text, args.short, args.apply, args.bib,
+        return cmd_apply(con, entries, text, args.short, args.apply, args.safe, args.bib,
                          args.dry_run, color, selectors)
-    if args.pick:
-        return cmd_pick(con, entries, text, args.short, args.bib, args.db,
-                        args.dry_run, color, selectors)
     if args.mute is not None:
-        return cmd_mute(con, entries, text, args.short, args.mute, args.bib,
+        return cmd_mute(con, entries, text, args.short, args.mute, args.safe, args.bib,
                         args.dry_run, selectors, color)
 
     # default: read-only report
