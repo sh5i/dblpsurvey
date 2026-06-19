@@ -12,7 +12,7 @@ stable id `citekey:field` (or `citekey:@` for an arXiv->published whole-entry sw
   dblpbib refs.bib                       # read-only report (each proposal shows its id)
   dblpbib refs.bib --apply               # pick fixes interactively (fzf/peco), then apply
   dblpbib refs.bib --apply=all           # apply every proposal (add --safe for confident only)
-  dblpbib refs.bib --plan | fzf | dblpbib refs.bib --apply=stdin   # compose your own picker
+  dblpbib refs.bib --oneline | fzf | dblpbib refs.bib --apply=stdin   # compose your own picker
   dblpbib refs.bib --mute                # pick proposals to silence for good (interactively)
   dblpbib refs.bib --mute=all            # silence every still-warning proposal for good
   dblpbib refs.bib --show ID             # one proposal's full before/after (fzf preview)
@@ -810,9 +810,31 @@ def render_show(f, p, color):
         out.append("  %s %s" % (c("90", "dblp"), c("32", p["dblp"])))
     return "\n".join(out)
 
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+_SKIP = ("●", "summary:", "ignore:")           # report header / footer lines carry no id
+
+def _looks_like_id(tok):
+    """True if `tok` is shaped like a proposal id: <key>:<field|@>, field lowercase-led."""
+    key, sep, field = tok.rpartition(":")
+    return bool(sep and key) and (field == "@" or bool(re.fullmatch(r"[a-z][\w.+-]*", field)))
+
+def _line_id(line):
+    """The proposal id in one line, tolerating decoration: the first token if it is an id
+    (e.g. a hand-typed id), else the trailing id-shaped token (--oneline / report form); None
+    for header / summary / blank lines. Lets either layout be piped to apply."""
+    s = _ANSI.sub("", line).strip()
+    if not s or s.startswith(_SKIP):
+        return None
+    toks = s.split()
+    if _looks_like_id(toks[0]):
+        return toks[0]
+    hits = [t for t in toks if _looks_like_id(t)]
+    return hits[-1] if hits else None
+
 def _read_stdin_ids():
-    """The leading whitespace token of each non-blank stdin line (fzf/peco/--plan output)."""
-    return [re.split(r"\s+", ln.strip(), maxsplit=1)[0] for ln in sys.stdin if ln.strip()]
+    """Proposal ids from stdin -- one per line where present, decoration ignored -- so you can
+    pipe --oneline output OR the plain text report into --apply=stdin / --mute=stdin."""
+    return [i for i in (_line_id(ln) for ln in sys.stdin) if i]
 
 def _candidates(findings, safe):
     """Proposals offered for selection: non-suppressed, and -- with `safe` -- only the
@@ -826,7 +848,7 @@ def _pick(props, findings, color):
     picker = shutil.which("fzf") or shutil.which("peco")
     if not picker:
         sys.stderr.write("interactive mode needs fzf or peco; or compose with a pipe: "
-                         "dblpbib BIB --plan | <picker> | dblpbib BIB --apply=stdin\n")
+                         "dblpbib BIB --oneline | <picker> | dblpbib BIB --apply=stdin\n")
         return None
     is_fzf = os.path.basename(picker) == "fzf"
     fmap = {p["id"]: f for f in findings for p in f.get("proposals", [])}
@@ -853,12 +875,14 @@ def _apply_ids(text, props, ids):
               if p["op"] == "replace" or p["id"].rsplit(":", 1)[0] not in replaced]
     return apply_fixes(text, [p["edit"] for p in chosen]), chosen, missing
 
-def cmd_plan(findings, safe):
-    """One selectable proposal per line: id <TAB> op <TAB> summary -- plain text to pipe into
-    fzf/peco (the id is the first field, read back by --apply=stdin).  Suppressed proposals are
+def cmd_oneline(findings, safe, color):
+    """Flat one-proposal-per-line view: the same proposal lines as the report (op, field,
+    before -> after, id trailing) but without entry-grouping headers or the summary.  Reads
+    well, and pipes straight into fzf and on to --apply=stdin.  Suppressed proposals are
     omitted; with --safe only confident (non-review) proposals are listed."""
+    c = _colorer(color)
     for p in _candidates(findings, safe):
-        print("%s\t%s\t%s" % (p["id"], _op_tag(p), _trunc(_summary(p))))
+        _print_proposal(c, p, indent="")
     return 0
 
 def cmd_show(con, entries, short, idstr, color):
@@ -954,21 +978,22 @@ def main():
     ap.add_argument("--db", default=os.environ.get("DBLP_DB", ""),
                     help="path to dblp.db (or set DBLP_DB)")
     MODES = ("interactive", "stdin", "all")
-    ap.add_argument("--plan", action="store_true",
-                    help="list selectable proposals, one per line "
-                         "(id <tab> op <tab> summary); pipe into fzf/peco. Honours --safe")
+    ap.add_argument("--oneline", action="store_true",
+                    help="flat one-proposal-per-line view of the report (no entry grouping or "
+                         "summary); pipe into fzf/peco then --apply=stdin. Honours --safe")
     ap.add_argument("--show", metavar="ID", default=None,
                     help="show one proposal's full before/after (used as the fzf preview)")
     ap.add_argument("--apply", nargs="?", const="interactive", choices=MODES, metavar="MODE",
                     help="apply proposals. MODE: 'interactive' (default; pick via fzf/peco), "
-                         "'stdin' (ids piped in, e.g. from --plan|fzf), or 'all'. With --safe, "
-                         "'all'/'interactive' offer only confident (non-review) proposals.")
+                         "'stdin' (ids piped in -- from --oneline|fzf, or even the plain report), "
+                         "or 'all'. With --safe, 'all'/'interactive' offer only confident "
+                         "(non-review) proposals.")
     ap.add_argument("--mute", nargs="?", const="interactive", choices=MODES, metavar="MODE",
                     help="silence proposals for good by writing them into the in-file "
                          "@comment{dblpbib-ignore} block. Same MODEs as --apply.")
     ap.add_argument("--safe", action="store_true",
                     help="restrict the recommended set to confident (non-review) proposals "
-                         "(affects --plan and the 'all'/'interactive' modes of --apply/--mute)")
+                         "(affects --oneline and the 'all'/'interactive' modes of --apply/--mute)")
     ap.add_argument("--add", action="append", default=[], metavar="[KEY=]ID",
                     help="add an entry fetched from the DB by DOI / arXiv id / DBLP key "
                          "and append it to the .bib (repeatable; KEY sets the cite key, "
@@ -1018,8 +1043,8 @@ def main():
     for e in ig_err + cli_err:
         sys.stderr.write("dblpbib: %s\n" % e)
 
-    if args.plan:
-        return cmd_plan(derive(con, entries, args.short, selectors), args.safe)
+    if args.oneline:
+        return cmd_oneline(derive(con, entries, args.short, selectors), args.safe, color)
     if args.apply is not None:
         return cmd_apply(con, entries, text, args.short, args.apply, args.safe, args.bib,
                          args.dry_run, color, selectors)
@@ -1041,12 +1066,14 @@ def main():
 STYLE = dict(ok="32", mismatch="31", review="33", upgrade="35",
              incomplete="36", fuzzy="90", unknown="90")
 
-def _print_proposal(c, p, dim=False):
-    """One proposal line. `dim` renders a suppressed proposal greyed out with a [ignored] tag."""
+def _print_proposal(c, p, dim=False, indent="  "):
+    """One proposal line (id trailing). `dim` greys out a suppressed proposal with a [ignored]
+    tag; `indent` is the leading pad (the report indents under an entry header, --oneline does
+    not)."""
     sym, op, col = _op_style(p)
     if dim:
         sym, col = "·", "90"
-    head = "  %s %s %s" % (c(col + ";1", sym), c(col, "%-4s" % op),
+    head = "%s%s %s %s" % (indent, c(col + ";1", sym), c(col, "%-4s" % op),
                            c("90" if dim else "1", "%-10s" % p["field"]))
     note = "  " + c("90" if dim else "33", _trunc(p["note"], 48)) if p["note"] else ""
     tail = c("90", ("[ignored] " if dim else "") + p["id"])
@@ -1093,7 +1120,7 @@ def report(findings, selectors, counts, color, verbose, show_suppressed):
              if counts[k]]
     print("\n%s %s" % (c("1", "summary:"), ", ".join(parts) or "nothing to check"))
     if any(counts[k] for k in ("mismatch", "review", "incomplete", "upgrade")):
-        print(c("90", "  pick fixes:  dblpbib BIB --pick"))
+        print(c("90", "  apply: dblpbib BIB --apply   ·   silence: dblpbib BIB --mute"))
 
 if __name__ == "__main__":
     sys.exit(main())

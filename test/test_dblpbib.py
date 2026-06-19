@@ -94,6 +94,22 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(text[fld.start:fld.end], "{2019}")     # offsets span the value token
         self.assertIn("year = {2021}", bc.apply_fixes(text, [(fld.start, fld.end, "{2021}")]))
 
+    def test_line_id_from_plan_and_report(self):
+        # --plan form: id is the first token (ignore a colon-y summary that follows)
+        self.assertEqual(bc._line_id("Bosu2014:year\tedit\tOld:x → New:y"), "Bosu2014:year")
+        # text-report proposal lines: id is the trailing token, decoration ignored
+        self.assertEqual(bc._line_id("  ~ edit year       2013 → 2014  Bosu2014:year"),
+                         "Bosu2014:year")
+        self.assertEqual(bc._line_id("  + add  doi    10.1016/j.jss.x  Bosu2014:doi"), "Bosu2014:doi")
+        self.assertEqual(bc._line_id("  » repl @entry  now published  m:@"), "m:@")
+        self.assertEqual(bc._line_id("  \x1b[90m~\x1b[0m edit year x Bosu2014:year"),
+                         "Bosu2014:year")            # ANSI colour stripped
+        # header / summary / stale-ignore lines carry no applicable id
+        self.assertIsNone(bc._line_id("● Some Title: A Survey  Bosu2014"))
+        self.assertIsNone(bc._line_id("summary: 1 mismatch, 2 suppressed"))
+        self.assertIsNone(bc._line_id("ignore: matched nothing (stale): Nope:doi"))
+        self.assertIsNone(bc._line_id("   "))
+
     def test_parse_selector(self):
         s, e = bc._parse_selector("Knuth:1984:year")
         self.assertIsNone(e)
