@@ -90,16 +90,16 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(bc.gen_citekey(row, set()), "Hayashi2024")
         self.assertEqual(bc.gen_citekey(row, {"Hayashi2024"}), "Hayashi2024a")
 
-    def test_parse_and_apply_fixes(self):
+    def test_parse_and_apply_edits(self):
         text = "@article{k,\n  title = {Hello},\n  year = {2019}\n}\n"
         e = bc.parse_bib(text)[0]
         self.assertEqual((e.type, e.key, e.get("year")), ("article", "k", "2019"))
         fld = e.fields["year"]
         self.assertEqual(text[fld.start:fld.end], "{2019}")     # offsets span the value token
-        self.assertIn("year = {2021}", bc.apply_fixes(text, [(fld.start, fld.end, "{2021}")]))
+        self.assertIn("year = {2021}", bc.apply_edits(text, [(fld.start, fld.end, "{2021}")]))
 
-    def test_line_id_from_plan_and_report(self):
-        # --plan form: id is the first token (ignore a colon-y summary that follows)
+    def test_line_id_oneline_and_report(self):
+        # id-first form (e.g. a hand-typed id): first token wins, ignore a colon-y suffix
         self.assertEqual(bc._line_id("Bosu2014:year\tedit\tOld:x → New:y"), "Bosu2014:year")
         # text-report proposal lines: id is the trailing token, decoration ignored
         self.assertEqual(bc._line_id("  ~ edit year       2013 → 2014  Bosu2014:year"),
@@ -190,7 +190,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(f["status"], "ok")
         self.assertEqual(f["proposals"], [])
 
-    def test_fills_are_proposals(self):
+    def test_adds_are_proposals(self):
         f = self.finding(
             "@inproceedings{p,\n author={Alice B. Smith and Bob Jones},\n"
             " title={A Great Paper on Software Testing},\n"
@@ -199,7 +199,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual({k: p["op"] for k, p in self.by_field(f).items()},
                          {"pages": "add", "doi": "add"})
 
-    def test_mismatch_year_is_a_fix(self):
+    def test_mismatch_year_is_an_edit(self):
         f = self.finding(
             "@article{a,\n author={Carol Lee and Dan Park},\n"
             " title={Static Analysis for Concurrency Bugs},\n"

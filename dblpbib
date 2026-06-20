@@ -6,11 +6,11 @@ For each @article / @inproceedings (and arXiv @misc) it looks the title up in th
 (author, year, pages, volume, number) corrected from the DB, missing fields filled,
 venue names and a differing DOI offered too.  Nothing is auto-applied: you choose.
 
-The fix model is select-then-apply (like `git add -p`).  Every proposed change has a
+The change model is select-then-apply (like `git add -p`).  Every proposed change has a
 stable id `citekey:field` (or `citekey:@` for an arXiv->published whole-entry swap):
 
   dblpbib refs.bib                       # read-only report (each proposal shows its id)
-  dblpbib refs.bib --apply               # pick fixes interactively (fzf/peco), then apply
+  dblpbib refs.bib --apply               # choose changes interactively (fzf/peco), then apply
   dblpbib refs.bib --apply=all           # apply every proposal (add --safe for confident only)
   dblpbib refs.bib --oneline | fzf | dblpbib refs.bib --apply=stdin   # compose your own picker
   dblpbib refs.bib --mute                # pick proposals to silence for good (interactively)
@@ -118,7 +118,7 @@ def surnames(s):
     return out
 
 # --- a small offset-tracking .bib parser --------------------------------------
-# We keep byte offsets so --fix can edit individual field values surgically
+# We keep byte offsets so edits can patch individual field values surgically
 # without re-serialising (and thus without disturbing untouched fields/layout).
 
 class Field:
@@ -156,7 +156,7 @@ def _match_brace(text, i):
 
 def parse_bib(text):
     """Parse @article/@inproceedings/@misc entries, keeping byte offsets for surgical
-    --fix edits. Assumes brace- or quote-delimited values (the common generated-.bib
+    surgical edits. Assumes brace- or quote-delimited values (the common generated-.bib
     form); @string macros and value concatenation ('a # b') are not interpreted."""
     entries = []
     for m in re.finditer(r"@(\w+)\s*\{", text):
@@ -390,21 +390,20 @@ def given_detail(bib_tok, db_tok):
     return "bib_richer" if all(_covered(t, bib_tok) for t in db_tok) else "differ"
 
 def compare(con, entry, row, short=False):
-    """Classify each field difference into one of three tiers:
-      fills   -- field absent from the .bib; safe to add
-      fixes   -- the .bib is wrong in a direction DBLP corrects
+    """Classify each field difference into one of three tiers feeding the proposal `op`:
+      adds    -- field absent from the .bib; safe to add         (op add)
+      edits   -- the .bib is wrong in a direction DBLP corrects   (op edit, confident)
       reviews -- a real difference whose direction is the author's call (venue name,
-                 a differing DOI, author/given-name detail, ambiguous pages)
-    Each review carries a note. process_entry turns all three into selectable proposals
-    (op add/edit + a `review` flag): fills -> add, fixes -> confident edit, reviews -> edit?."""
-    fixes, reviews, fills = [], [], []
+                 a differing DOI, author/given-name detail, ambiguous pages)  (op edit?, review)
+    Each review carries a note; process_entry turns all three into selectable proposals."""
+    edits, reviews, adds = [], [], []
 
     # author
     cur, db = entry.get("author"), authors_to_bib(row["authors"])
     if not cur:
-        fills.append(("author", db))
+        adds.append(("author", db))
     elif is_truncated(cur):
-        fixes.append(("author", cur, db))                       # "and others" -> full list
+        edits.append(("author", cur, db))                       # "and others" -> full list
     elif surnames(cur) != surnames(db):
         reviews.append(("author", cur, db,
                         "author set differs from DBLP — verify the citation / name forms"))
@@ -418,19 +417,19 @@ def compare(con, entry, row, short=False):
     # year
     cur = entry.get("year")
     if not cur:
-        fills.append(("year", str(row["year"])))
+        adds.append(("year", str(row["year"])))
     elif cur.strip() != str(row["year"]):
-        fixes.append(("year", cur, str(row["year"])))
+        edits.append(("year", cur, str(row["year"])))
 
     # pages
     cur = entry.get("pages")
     if not cur:
         if row["pages"]:
-            fills.append(("pages", fmt_pages(row["pages"])))
+            adds.append(("pages", fmt_pages(row["pages"])))
     elif row["pages"] and norm_pages(cur) != norm_pages(row["pages"]):
         nc, nd = re.findall(r"\d+", cur), re.findall(r"\d+", row["pages"])
         if len(nc) == 2 and len(nd) == 2:
-            fixes.append(("pages", cur, fmt_pages(row["pages"])))   # end-page typo etc.
+            edits.append(("pages", cur, fmt_pages(row["pages"])))   # end-page typo etc.
         else:
             reviews.append(("pages", cur, row["pages"],
                             "DBLP shows '%s' (a single number — likely an article id); "
@@ -444,15 +443,15 @@ def compare(con, entry, row, short=False):
             if not db:
                 continue
             if not cur:
-                fills.append((fld, db))
+                adds.append((fld, db))
             elif cur.strip() != db:
-                fixes.append((fld, cur, db))
+                edits.append((fld, cur, db))
 
     # doi: add if missing, but a *differing* DOI is advisory (preprint vs published?)
     cur, db = entry.get("doi"), strip_doi(row["doi"])
     if db:
         if not cur:
-            fills.append(("doi", db))
+            adds.append(("doi", db))
         elif strip_doi(cur).lower() != db.lower():
             reviews.append(("doi", cur, db, "DOI differs from DBLP — check (edition / preprint?)"))
 
@@ -469,7 +468,7 @@ def compare(con, entry, row, short=False):
                                  else (full, full_forms, short_forms))
         cur = entry.get(vfield)
         if not cur:
-            fills.append((vfield, target))
+            adds.append((vfield, target))
         elif _vn(cur) not in accept:
             if _vn(cur) in other:
                 note = "shorten to the abbreviated form" if short else "expand to the full name"
@@ -477,11 +476,11 @@ def compare(con, entry, row, short=False):
                 note = "short %s form" % word if short else "official %s name" % word
             reviews.append((vfield, cur, target, note))
 
-    return fixes, reviews, fills
+    return edits, reviews, adds
 
-# --- fix application (surgical, reverse-order edits) ---------------------------
+# --- edit application (surgical, reverse-order) -------------------------------
 
-def apply_fixes(text, edits):
+def apply_edits(text, edits):
     """edits: list of (start, end, replacement). end==start means insertion."""
     for start, end, repl in sorted(edits, key=lambda e: e[0], reverse=True):
         text = text[:start] + repl + text[end:]
@@ -489,7 +488,7 @@ def apply_fixes(text, edits):
 
 # --- add mode -----------------------------------------------------------------
 
-def add_entries(con, args, text, entries, color):
+def cmd_add(con, args, text, entries, color):
     """Fetch entries from the DB by id and append them to the .bib (or stdout)."""
     def c(code, s):
         return "\033[%sm%s\033[0m" % (code, s) if color else s
@@ -606,14 +605,14 @@ def process_entry(con, e, short=False):
 
     # Otherwise verify against the canonical record (published if available, else arXiv).
     row = pub[0] if pub else pre[0]
-    fixes, reviews, fills = compare(con, e, row, short)
+    edits, reviews, adds = compare(con, e, row, short)
     if matched_by in ("doi", "arxiv"):         # matched by id -> the title disagrees
         reviews.insert(0, ("title", title, row["title"],
                            "matched by %s but the title differs — an arXiv title may have "
                            "changed across versions, or a typo / wrong key" % matched_by.upper()))
-    props = [_proposal(e, "edit", f, a, b) for f, a, b in fixes]               # confident edit
+    props = [_proposal(e, "edit", f, a, b) for f, a, b in edits]               # confident edit
     props += [_proposal(e, "edit", f, a, b, n, review=True) for f, a, b, n in reviews]
-    props += [_proposal(e, "add", f, "", b) for f, b in fills]                 # missing field
+    props += [_proposal(e, "add", f, "", b) for f, b in adds]                 # missing field
     status = ("mismatch" if any(p["op"] == "edit" and not p["review"] for p in props)
               else "review" if any(p["review"] for p in props)
               else "incomplete" if props else "ok")
@@ -877,7 +876,7 @@ def _apply_ids(text, props, ids):
     replaced = {p["id"].rsplit(":", 1)[0] for p in chosen if p["op"] == "replace"}
     chosen = [p for p in chosen
               if p["op"] == "replace" or p["id"].rsplit(":", 1)[0] not in replaced]
-    return apply_fixes(text, [p["edit"] for p in chosen]), chosen, missing
+    return apply_edits(text, [p["edit"] for p in chosen]), chosen, missing
 
 def cmd_oneline(findings, safe, color):
     """Flat one-proposal-per-line view: the same proposal lines as the report (op, field,
@@ -976,6 +975,65 @@ def cmd_mute(con, entries, text, short, mode, safe, bib, dry_run, selectors, col
 
 # --- main ---------------------------------------------------------------------
 
+# finding status -> ANSI colour for the leading dot (severity at a glance).
+STYLE = dict(ok="32", mismatch="31", review="33", upgrade="35",
+             incomplete="36", fuzzy="90", unknown="90")
+
+def _proposal_line(c, p, dim=False, indent="  "):
+    """One proposal line as a string (id trailing).  `dim` greys out a suppressed proposal with
+    a [ignored] tag; `indent` is the leading pad (the report indents under an entry header;
+    --oneline and the fzf list do not).  Shared by the report, --oneline and the picker."""
+    sym, op, col = _op_style(p)
+    if dim:
+        sym, col = "·", "90"
+    head = "%s%s %s %s" % (indent, c(col + ";1", sym), c(col, "%-4s" % op),
+                           c("90" if dim else "1", "%-10s" % p["field"]))
+    note = "  " + c("90" if dim else "33", _trunc(p["note"], 48)) if p["note"] else ""
+    tail = c("90", ("[ignored] " if dim else "") + p["id"])
+    if p["op"] == "replace":
+        return "%s%s  %s" % (head, note, tail)
+    if p["op"] == "add":
+        return "%s %s  %s" % (head, c("90" if dim else "32", _trunc(p["dblp"], 64)), tail)
+    return ("%s %s %s %s%s  %s"       # edit: before -> after (truncated; full text via --show)
+            % (head, c("90" if dim else "31", _trunc(p["bib"], 32)), c("90", "→"),
+               c("90" if dim else "32", _trunc(p["dblp"], 48)), note, tail))
+
+def report(findings, selectors, counts, color, verbose, show_suppressed):
+    c = _colorer(color)
+    for f in findings:
+        eff = _eff_status(f)
+        vis = _visible(f)
+        supp = [p for p in f.get("proposals", []) if p.get("suppressed")]
+        nag_live = f["status"] in ("fuzzy", "unknown") and not f.get("nag_suppressed")
+        hidden = supp or f.get("nag_suppressed")
+        if not vis and not nag_live and not (show_suppressed and hidden) and not (verbose and eff == "ok"):
+            continue                               # nothing left to show for this entry
+        print("%s %s  %s" % (c(STYLE[eff], "●"), c("1", f["title"]), c("90", f["key"])))
+        for p in vis:
+            print(_proposal_line(c, p))
+        if show_suppressed:
+            for p in supp:
+                print(_proposal_line(c, p, dim=True))
+        if nag_live or (show_suppressed and f.get("nag_suppressed")):
+            for cand in f.get("candidates", []):
+                print("  %s %s %-8s %s"
+                      % (c("90", "~"), cand["year"], cand["venue"], cand["title"]))
+            tag = "" if nag_live else c("90", " [ignored]")
+            print("  %s%s" % (c("90", "(no exact match — may be out of DB scope; check manually)"), tag))
+    for s in selectors:                            # stale ignores (unused-noqa equivalent)
+        if s["count"] == 0:
+            print(c("33", "ignore: matched nothing (stale): %s" % s["sel"]))
+    if show_suppressed:
+        for s in selectors:
+            if s["count"]:
+                print(c("90", "ignore: %s → %d" % (s["sel"], s["count"])))
+    parts = [("%d %s" % (counts[k], k)) for k in
+             ("ok", "mismatch", "review", "upgrade", "incomplete", "fuzzy", "unknown", "suppressed")
+             if counts[k]]
+    print("\n%s %s" % (c("1", "summary:"), ", ".join(parts) or "nothing to check"))
+    if any(counts[k] for k in ("mismatch", "review", "incomplete", "upgrade")):
+        print(c("90", "  apply: dblpbib BIB --apply   ·   silence: dblpbib BIB --mute"))
+
 def main():
     ap = argparse.ArgumentParser(description="Check/fix a .bib file against dblp.db")
     ap.add_argument("bib")
@@ -1046,7 +1104,7 @@ def main():
     entries = parse_bib(text)
 
     if args.add:
-        return add_entries(con, args, text, entries, color)
+        return cmd_add(con, args, text, entries, color)
     if args.show is not None:
         return cmd_show(con, entries, args.short, args.show, color)
 
@@ -1074,65 +1132,6 @@ def main():
     else:
         report(findings, selectors, counts, color, args.verbose, args.show_suppressed)
     return 1 if counts["mismatch"] else 0       # CI gate: confirmed (un-suppressed) errors fail
-
-# finding status -> ANSI colour for the leading dot (severity at a glance).
-STYLE = dict(ok="32", mismatch="31", review="33", upgrade="35",
-             incomplete="36", fuzzy="90", unknown="90")
-
-def _proposal_line(c, p, dim=False, indent="  "):
-    """One proposal line as a string (id trailing).  `dim` greys out a suppressed proposal with
-    a [ignored] tag; `indent` is the leading pad (the report indents under an entry header;
-    --oneline and the fzf list do not).  Shared by the report, --oneline and the picker."""
-    sym, op, col = _op_style(p)
-    if dim:
-        sym, col = "·", "90"
-    head = "%s%s %s %s" % (indent, c(col + ";1", sym), c(col, "%-4s" % op),
-                           c("90" if dim else "1", "%-10s" % p["field"]))
-    note = "  " + c("90" if dim else "33", _trunc(p["note"], 48)) if p["note"] else ""
-    tail = c("90", ("[ignored] " if dim else "") + p["id"])
-    if p["op"] == "replace":
-        return "%s%s  %s" % (head, note, tail)
-    if p["op"] == "add":
-        return "%s %s  %s" % (head, c("90" if dim else "32", _trunc(p["dblp"], 64)), tail)
-    return ("%s %s %s %s%s  %s"       # edit: before -> after (truncated; full text via --show)
-            % (head, c("90" if dim else "31", _trunc(p["bib"], 32)), c("90", "→"),
-               c("90" if dim else "32", _trunc(p["dblp"], 48)), note, tail))
-
-def report(findings, selectors, counts, color, verbose, show_suppressed):
-    c = _colorer(color)
-    for f in findings:
-        eff = _eff_status(f)
-        vis = _visible(f)
-        supp = [p for p in f.get("proposals", []) if p.get("suppressed")]
-        nag_live = f["status"] in ("fuzzy", "unknown") and not f.get("nag_suppressed")
-        hidden = supp or f.get("nag_suppressed")
-        if not vis and not nag_live and not (show_suppressed and hidden) and not (verbose and eff == "ok"):
-            continue                               # nothing left to show for this entry
-        print("%s %s  %s" % (c(STYLE[eff], "●"), c("1", f["title"]), c("90", f["key"])))
-        for p in vis:
-            print(_proposal_line(c, p))
-        if show_suppressed:
-            for p in supp:
-                print(_proposal_line(c, p, dim=True))
-        if nag_live or (show_suppressed and f.get("nag_suppressed")):
-            for cand in f.get("candidates", []):
-                print("  %s %s %-8s %s"
-                      % (c("90", "~"), cand["year"], cand["venue"], cand["title"]))
-            tag = "" if nag_live else c("90", " [ignored]")
-            print("  %s%s" % (c("90", "(no exact match — may be out of DB scope; check manually)"), tag))
-    for s in selectors:                            # stale ignores (unused-noqa equivalent)
-        if s["count"] == 0:
-            print(c("33", "ignore: matched nothing (stale): %s" % s["sel"]))
-    if show_suppressed:
-        for s in selectors:
-            if s["count"]:
-                print(c("90", "ignore: %s → %d" % (s["sel"], s["count"])))
-    parts = [("%d %s" % (counts[k], k)) for k in
-             ("ok", "mismatch", "review", "upgrade", "incomplete", "fuzzy", "unknown", "suppressed")
-             if counts[k]]
-    print("\n%s %s" % (c("1", "summary:"), ", ".join(parts) or "nothing to check"))
-    if any(counts[k] for k in ("mismatch", "review", "incomplete", "upgrade")):
-        print(c("90", "  apply: dblpbib BIB --apply   ·   silence: dblpbib BIB --mute"))
 
 if __name__ == "__main__":
     sys.exit(main())
