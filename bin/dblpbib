@@ -59,8 +59,8 @@ sys.path.insert(0, _SRC)
 # The dblp.db domain layer (field formatting, venue resolution, BibTeX serialisation) is a
 # light, stdlib-only sibling -> import it eagerly.  bibspan/bibgraft (which pull in the
 # vendored submodule) stay lazy via _sibling, so `--help` / the no-db skip cost nothing.
-from dblpdb import (norm_title, norm_pages, fmt_pages, authors_to_bib, strip_doi,  # noqa: E402
-                    _delatex, _fold, _vn, venue_forms, to_bibtex)
+from dblpdb import (Db, norm_title, norm_pages, fmt_pages, authors_to_bib,  # noqa: E402
+                    strip_doi, _delatex, _fold, _vn)
 
 
 def _sibling(name):
@@ -122,27 +122,7 @@ def parse_bib(text):
     return [e for e in _sibling("bibspan").parse(text)
             if e.type in ("article", "inproceedings", "misc")]
 
-# --- database lookup ----------------------------------------------------------
-
-def lookup_exact(con, title):
-    rows = con.execute(
-        "SELECT * FROM entries WHERE title_norm=?", (norm_title(title),)
-    ).fetchall()
-    published = [r for r in rows if r["venue"] != "corr"]
-    preprint = [r for r in rows if r["venue"] == "corr"]
-    return published, preprint
-
-def lookup_doi(con, doi):
-    """Fallback lookup by DOI (when the title doesn't match): try the indexed doi
-    column first, then any electronic-edition link in `ee`."""
-    rows = con.execute(
-        "SELECT * FROM entries WHERE doi = 'https://doi.org/' || ?", (doi,)).fetchall()
-    if not rows:
-        rows = con.execute(
-            "SELECT * FROM entries WHERE ee LIKE '%' || ? || '%'", (doi,)).fetchall()
-    pub = [r for r in rows if r["venue"] != "corr"]
-    pre = [r for r in rows if r["venue"] == "corr"]
-    return pub, pre
+# --- arXiv detection on the .bib entry (DB lookups now live in dblpdb.Db) ------
 
 _AXID = r"[a-z\-]+/\d{7}|\d{4}\.\d{4,5}"     # cs/0501001 (old) | 2407.19487 (new)
 
@@ -159,13 +139,6 @@ def arxiv_id(entry):
     blob = " ".join(entry.get(f) for f in ("howpublished", "note", "journal", "doi", "url"))
     m = re.search(r"arxiv[:\s/.]*(%s)" % _AXID, blob, re.I)
     return m.group(1) if m else ""
-
-def lookup_arxiv(con, axid):
-    """Find the DBLP CoRR (arXiv) record for an arXiv id, via its ee link.  Lets us
-    match even when the arXiv title changed across versions."""
-    rows = con.execute("SELECT * FROM entries WHERE venue='corr' AND "
-                       "ee LIKE '%' || ? || '%'", (axid,)).fetchall()
-    return [], rows                          # arXiv records are always preprints
 
 def is_arxiv(entry):
     """True if the .bib entry is written as an arXiv/CoRR preprint, in any of the
@@ -185,19 +158,6 @@ def suggest_publication(entry, pub, pre):
     if not pub:
         return None                          # no formal publication in the DB
     return pub[0] if (entry.type == "misc" or is_arxiv(entry)) else None
-
-def fuzzy(con, title, limit=4):
-    toks = [t for t in re.findall(r"[A-Za-z0-9]+", title) if len(t) > 2][:8]
-    if not toks:
-        return []
-    q = "title:(" + " OR ".join(toks) + ")"
-    try:
-        return con.execute(
-            "SELECT e.year, e.venue, e.title, e.key FROM fts JOIN entries e "
-            "USING(key) WHERE fts MATCH ? ORDER BY rank LIMIT ?", (q, limit)
-        ).fetchall()
-    except sqlite3.OperationalError:
-        return []
 
 # --- comparison ---------------------------------------------------------------
 
@@ -221,8 +181,9 @@ def given_detail(bib_tok, db_tok):
     'differ'     = the .bib lacks something DBLP spells out (or they conflict)."""
     return "bib_richer" if all(_covered(t, bib_tok) for t in db_tok) else "differ"
 
-def compare(con, entry, row, short=False):
-    """Classify each field difference into one of three tiers feeding the proposal `op`:
+def compare(entry, record, short=False):
+    """Classify each field difference between the .bib `entry` and the DBLP `record` into
+    one of three tiers feeding the proposal `op`:
       adds    -- field absent from the .bib; safe to add         (op add)
       edits   -- the .bib is wrong in a direction DBLP corrects   (op edit, confident)
       reviews -- a real difference whose direction is the author's call (venue name,
@@ -231,7 +192,7 @@ def compare(con, entry, row, short=False):
     edits, reviews, adds = [], [], []
 
     # author
-    cur, db = entry.get("author"), authors_to_bib(row["authors"])
+    cur, db = entry.get("author"), record.authors_bib
     if not cur:
         adds.append(("author", db))
     elif is_truncated(cur):
@@ -249,29 +210,29 @@ def compare(con, entry, row, short=False):
     # year
     cur = entry.get("year")
     if not cur:
-        adds.append(("year", str(row["year"])))
-    elif cur.strip() != str(row["year"]):
-        edits.append(("year", cur, str(row["year"])))
+        adds.append(("year", record.year))
+    elif cur.strip() != record.year:
+        edits.append(("year", cur, record.year))
 
     # pages
     cur = entry.get("pages")
     if not cur:
-        if row["pages"]:
-            adds.append(("pages", fmt_pages(row["pages"])))
-    elif row["pages"] and norm_pages(cur) != norm_pages(row["pages"]):
-        nc, nd = re.findall(r"\d+", cur), re.findall(r"\d+", row["pages"])
+        if record.pages:
+            adds.append(("pages", fmt_pages(record.pages)))
+    elif record.pages and norm_pages(cur) != norm_pages(record.pages):
+        nc, nd = re.findall(r"\d+", cur), re.findall(r"\d+", record.pages)
         if len(nc) == 2 and len(nd) == 2:
-            edits.append(("pages", cur, fmt_pages(row["pages"])))   # end-page typo etc.
+            edits.append(("pages", cur, fmt_pages(record.pages)))   # end-page typo etc.
         else:
-            reviews.append(("pages", cur, row["pages"],
+            reviews.append(("pages", cur, record.pages,
                             "DBLP shows '%s' (a single number — likely an article id); "
-                            "your value was not confirmed" % row["pages"]
+                            "your value was not confirmed" % record.pages
                             if len(nd) < 2 else "page numbers differ — check"))
 
     # volume / number (articles only)
     if entry.type == "article":
         for fld in ("volume", "number"):
-            cur, db = entry.get(fld), str(row[fld] or "")
+            cur, db = entry.get(fld), str(record.row[fld] or "")
             if not db:
                 continue
             if not cur:
@@ -280,7 +241,7 @@ def compare(con, entry, row, short=False):
                 edits.append((fld, cur, db))
 
     # doi: add if missing, but a *differing* DOI is advisory (preprint vs published?)
-    cur, db = entry.get("doi"), strip_doi(row["doi"])
+    cur, db = entry.get("doi"), record.doi
     if db:
         if not cur:
             adds.append(("doi", db))
@@ -292,10 +253,10 @@ def compare(con, entry, row, short=False):
     # (a long spelling is offered SHORTENING).  A spelling already on the target side is
     # left untouched; an unrecognized one is a plain venue correction.  Journals live in
     # the journal field, proceedings in booktitle; venue_forms supplies both sides' forms.
-    full, _vk, full_forms, short_forms, short_name = venue_forms(con, row)
+    full, _vk, full_forms, short_forms, short_name = record.venue_forms()
     if full or short_name:
-        vfield = "booktitle" if row["type"] == "inproceedings" else "journal"
-        word = "venue" if row["type"] == "inproceedings" else "journal"
+        vfield = "booktitle" if record.type == "inproceedings" else "journal"
+        word = "venue" if record.type == "inproceedings" else "journal"
         target, accept, other = ((short_name, short_forms, full_forms) if short
                                  else (full, full_forms, short_forms))
         cur = entry.get(vfield)
@@ -312,25 +273,25 @@ def compare(con, entry, row, short=False):
 
 # --- per-entry processing -----------------------------------------------------
 
-def match_record(con, e):
-    """Locate the DBLP record(s) for an entry: try the title, then the DOI, then an
-    arXiv id; if only a preprint matched by id, look for a published sibling by its real
-    title (the entry's own title may be stale). Returns (pub, pre, matched_by)."""
+def match_record(db, e):
+    """Locate the DBLP record(s) for an entry: try the title, then the DOI, then an arXiv
+    id; if only a preprint matched by id, look for a published sibling by its real title
+    (the entry's own title may be stale). Returns (pub, pre, matched_by) of DblpEntry."""
     title = e.get("title")
-    pub, pre = lookup_exact(con, title)
+    pub, pre = db.by_title(title)
     matched_by = "title"
     if not (pub or pre):                      # title missed: fall back to the DOI
         doi = strip_doi(e.get("doi"))
         if doi:
-            pub, pre = lookup_doi(con, doi)
+            pub, pre = db.by_doi(doi)
             matched_by = "doi"
     if not (pub or pre):                      # still nothing: try the arXiv id
         axid = arxiv_id(e)
         if axid:
-            pub, pre = lookup_arxiv(con, axid)
+            pub, pre = db.by_arxiv(axid)
             matched_by = "arxiv"
     if pre and not pub and matched_by in ("doi", "arxiv"):
-        pub, _ = lookup_exact(con, pre[0]["title"])
+        pub, _ = db.by_title(pre[0].title)
     return pub, pre, matched_by
 
 def _proposal(e, op, field, bib, dblp, note="", review=False):
@@ -341,7 +302,7 @@ def _proposal(e, op, field, bib, dblp, note="", review=False):
                 bib=bib, dblp=dblp, note=note,
                 op_bib={"op": "set", "key": e.key, "field": field, "value": dblp})
 
-def process_entry(con, e, short=False):
+def process_entry(db, e, short=False):
     """Classify one .bib entry against DBLP. Returns a finding dict, or None to skip.
     A matched finding carries `proposals`: each a selectable change with a stable id
     (`citekey:field`, or `citekey:@`), an operation `op` (add a missing field / edit an
@@ -352,10 +313,10 @@ def process_entry(con, e, short=False):
     if e.type == "misc" and not is_arxiv(e):
         return None                            # non-paper @misc (datasets, manuals): skip
     title = e.get("title")
-    pub, pre, matched_by = match_record(con, e)
+    pub, pre, matched_by = match_record(db, e)
 
     if not (pub or pre):                       # no match -> fuzzy candidates, else unknown
-        cands = fuzzy(con, title)
+        cands = db.fuzzy(title)
         return dict(key=e.key, type=e.type, status=("fuzzy" if cands else "unknown"),
                     title=title, matched_by=None, proposals=[],
                     candidates=[dict(year=c["year"], venue=c["venue"], title=c["title"])
@@ -364,13 +325,13 @@ def process_entry(con, e, short=False):
     # An arXiv-form entry that is now formally published -> a whole-entry replace proposal.
     published = suggest_publication(e, pub, pre)
     if published:
-        vkind = venue_forms(con, published)[1]
+        vkind = published.venue_forms()[1]
         tag = "" if vkind in ("main", "journal") else " [%s]" % vkind
-        vshort = published["booktitle"] or published["journal"]
-        repl = to_bibtex(con, e.key, published, short)
+        vshort = published.row["booktitle"] or published.row["journal"]
+        repl = published.to_bibtex(e.key, short)
         prop = dict(id="%s:@" % e.key, op="replace", review=True, field="@entry",
                     bib="@" + e.type,
-                    dblp="%s %s%s (%s)" % (vshort, published["year"], tag, published["key"]),
+                    dblp="%s %s%s (%s)" % (vshort, published.year, tag, published.key),
                     note="now published — replace the whole entry",
                     replacement=repl,
                     op_bib={"op": "replace-entry", "key": e.key, "value": repl})
@@ -378,10 +339,10 @@ def process_entry(con, e, short=False):
                     matched_by=matched_by, proposals=[prop], candidates=[])
 
     # Otherwise verify against the canonical record (published if available, else arXiv).
-    row = pub[0] if pub else pre[0]
-    edits, reviews, adds = compare(con, e, row, short)
+    record = pub[0] if pub else pre[0]
+    edits, reviews, adds = compare(e, record, short)
     if matched_by in ("doi", "arxiv"):         # matched by id -> the title disagrees
-        reviews.insert(0, ("title", title, row["title"],
+        reviews.insert(0, ("title", title, record.title,
                            "matched by %s but the title differs — an arXiv title may have "
                            "changed across versions, or a typo / wrong key" % matched_by.upper()))
     props = [_proposal(e, "edit", f, a, b) for f, a, b in edits]               # confident edit
@@ -393,9 +354,9 @@ def process_entry(con, e, short=False):
     return dict(key=e.key, type=e.type, status=status, title=title,
                 matched_by=matched_by, proposals=props, candidates=[])
 
-def derive(con, entries, short=False, selectors=()):
+def derive(db, entries, short=False, selectors=()):
     """All findings for the parsed entries (skipped entries dropped); suppressions applied."""
-    findings = [f for f in (process_entry(con, e, short) for e in entries) if f is not None]
+    findings = [f for f in (process_entry(db, e, short) for e in entries) if f is not None]
     apply_suppressions(findings, selectors)
     return findings
 
@@ -681,12 +642,12 @@ def cmd_oneline(findings, safe, color):
         print(_proposal_line(c, p, indent=""))
     return 0
 
-def cmd_show(con, entries, short, idstr, color):
+def cmd_show(db, entries, short, idstr, color):
     """Full before/after for ONE proposal (the fzf --preview body; also handy alone). Only
     the entry named by the id is re-derived, so the preview stays fast on a large .bib."""
     key = idstr.rsplit(":", 1)[0]
     ent = next((e for e in entries if e.key == key), None)
-    f = process_entry(con, ent, short) if ent else None
+    f = process_entry(db, ent, short) if ent else None
     p = next((q for q in f["proposals"] if q["id"] == idstr), None) if f else None
     if not p:
         print("no such proposal: %s" % idstr)
@@ -701,13 +662,13 @@ def _write_or_echo(text, applied, bib, dry_run):
         with open(bib, "w", encoding="utf-8") as f:
             f.write(text)
 
-def cmd_apply(con, entries, text, short, mode, safe, bib, dry_run, color, selectors=()):
+def cmd_apply(db, entries, text, short, mode, safe, bib, dry_run, color, selectors=()):
     """Accept proposals.  mode: 'interactive' (pick via fzf/peco), 'stdin' (ids piped in), or
     'all' (every candidate).  Candidates are non-suppressed (and, with `safe`, only non-review);
     an id named via stdin still applies even if it is suppressed (explicit overrides ignore)."""
     c = _colorer(color)
     log = sys.stderr if dry_run else sys.stdout
-    findings = derive(con, entries, short, selectors)
+    findings = derive(db, entries, short, selectors)
     props = all_proposals(findings)
     if mode == "stdin":
         ids = _read_stdin_ids()
@@ -732,13 +693,13 @@ def cmd_apply(con, entries, text, short, mode, safe, bib, dry_run, color, select
     _write_or_echo(new_text, applied, bib, dry_run)
     return 0
 
-def cmd_mute(con, entries, text, short, mode, safe, bib, dry_run, selectors, color):
+def cmd_mute(db, entries, text, short, mode, safe, bib, dry_run, selectors, color):
     """Write proposals into the in-file @comment{dblpbib-ignore} block, silencing them for
     good.  mode: 'interactive' (pick via fzf/peco), 'stdin' (ids piped in), or 'all' (every
     candidate; with `safe`, only the confident/non-review ones)."""
     c = _colorer(color)
     log = sys.stderr if dry_run else sys.stdout
-    findings = derive(con, entries, short, selectors)
+    findings = derive(db, entries, short, selectors)
     known = {p["id"] for p in all_proposals(findings)}
     if mode == "stdin":
         ids = []
@@ -879,22 +840,23 @@ def main():
     else:
         color = args.show is not None or sys.stdout.isatty()
 
-    db = args.db or os.path.join(_ROOT, "data", args.profile + ".db")
-    if not os.path.exists(db):
+    db_path = args.db or os.path.join(_ROOT, "data", args.profile + ".db")
+    if not os.path.exists(db_path):
         sys.stderr.write(
             "dblpbib: no dblp.db at %s; skipping.\n"
             "  Build it with `make PROFILE=%s` (or pass --db PATH).\n"
-            % (db, args.profile))
+            % (db_path, args.profile))
         return 0
 
-    con = sqlite3.connect(db)
+    con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
+    db = Db(con)
     with open(args.bib, encoding="utf-8") as f:
         text = f.read()
     entries = parse_bib(text)
 
     if args.show is not None:
-        return cmd_show(con, entries, args.short, args.show, color)
+        return cmd_show(db, entries, args.short, args.show, color)
 
     selectors, ig_err = parse_ignores(text)         # @comment{dblpbib-ignore ...} + --ignore
     cli_sel, cli_err = cli_ignores(args.ignore)
@@ -903,16 +865,16 @@ def main():
         sys.stderr.write("dblpbib: %s\n" % e)
 
     if args.oneline:
-        return cmd_oneline(derive(con, entries, args.short, selectors), args.safe, color)
+        return cmd_oneline(derive(db, entries, args.short, selectors), args.safe, color)
     if args.apply is not None:
-        return cmd_apply(con, entries, text, args.short, args.apply, args.safe, args.bib,
+        return cmd_apply(db, entries, text, args.short, args.apply, args.safe, args.bib,
                          args.dry_run, color, selectors)
     if args.mute is not None:
-        return cmd_mute(con, entries, text, args.short, args.mute, args.safe, args.bib,
+        return cmd_mute(db, entries, text, args.short, args.mute, args.safe, args.bib,
                         args.dry_run, selectors, color)
 
     # default: read-only report
-    findings = derive(con, entries, args.short, selectors)
+    findings = derive(db, entries, args.short, selectors)
     counts = tally(findings)                        # statuses after suppression
     if args.json:
         print(json.dumps(dict(summary=counts, findings=findings),

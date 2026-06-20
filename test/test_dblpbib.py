@@ -173,7 +173,7 @@ class CheckTests(unittest.TestCase):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def finding(self, bibstr, short=False):
-        return bc.process_entry(self.con, bc.parse_bib(bibstr)[0], short)
+        return bc.process_entry(bc.Db(self.con), bc.parse_bib(bibstr)[0], short)
 
     @staticmethod
     def by_field(f):
