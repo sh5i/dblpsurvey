@@ -85,11 +85,6 @@ class HelperTests(unittest.TestCase):
         e = bc.parse_bib("@article{y, title={T}, journal={CoRR}, volume={abs/cs/0501001}}")[0]
         self.assertEqual(bc.arxiv_id(e), "cs/0501001")
 
-    def test_gen_citekey(self):
-        row = {"authors": "Shinpei Hayashi 0001, X Y", "year": 2024}
-        self.assertEqual(bc.gen_citekey(row, set()), "Hayashi2024")
-        self.assertEqual(bc.gen_citekey(row, {"Hayashi2024"}), "Hayashi2024a")
-
     def test_parse_and_apply_via_bibgraft(self):
         text = "@article{k,\n  title = {Hello},\n  year = {2019}\n}\n"
         e = bc.parse_bib(text)[0]

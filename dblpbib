@@ -16,7 +16,6 @@ stable id `citekey:field` (or `citekey:@` for an arXiv->published whole-entry sw
   dblpbib refs.bib --mute                # pick proposals to silence for good (interactively)
   dblpbib refs.bib --mute=all            # silence every still-warning proposal for good
   dblpbib refs.bib --show ID             # one proposal's full before/after (fzf preview)
-  dblpbib refs.bib --add 10.1145/xxxxxxx # fetch an entry from the DB and append it
   dblpbib refs.bib -a                    # also show suppressed (ignored) proposals
   dblpbib refs.bib --ignore key:doi      # suppress one proposal for this run (ephemeral)
 
@@ -320,33 +319,6 @@ def to_bibtex(con, citekey, row, short=False):
     body = ",\n".join("  %s = {%s}" % (k, v) for k, v in fields if v)
     return "@%s{%s,\n%s\n}" % (row["type"], citekey, body)
 
-def resolve_id(con, idstr):
-    """Look up a single entry by DOI, arXiv id, or DBLP key (preferring the
-    published version for a DOI).  Returns a row or None."""
-    s = strip_doi(idstr).strip()
-    if re.match(r"10\.\d+/", s):                                   # DOI
-        pub, pre = lookup_doi(con, s)
-        return pub[0] if pub else (pre[0] if pre else None)
-    ax = re.sub(r"^arxiv:", "", idstr.strip(), flags=re.I)
-    if re.fullmatch(r"(%s)(v\d+)?" % _AXID, ax):                   # arXiv id
-        _, pre = lookup_arxiv(con, re.sub(r"v\d+$", "", ax))
-        return pre[0] if pre else None
-    if "/" in idstr:                                               # DBLP key
-        return con.execute("SELECT * FROM entries WHERE key=?", (idstr.strip(),)).fetchone()
-    return None
-
-def gen_citekey(row, used):
-    """Generate a <Family><Year> citation key, avoiding collisions in `used`."""
-    first = (row["authors"] or "anon").split(",")[0]
-    toks = re.sub(r"\s+\d{4}$", "", first).split()
-    fam = _fold(toks[-1]) if toks else "anon"
-    base = (fam[:1].upper() + fam[1:]) + str(row["year"] or "")
-    key, suffix = base, ord("a")
-    while key in used:
-        key = base + chr(suffix)
-        suffix += 1
-    return key
-
 def fuzzy(con, title, limit=4):
     toks = [t for t in re.findall(r"[A-Za-z0-9]+", title) if len(t) > 2][:8]
     if not toks:
@@ -481,51 +453,6 @@ def _bibgraft():
         sys.path.insert(0, _HERE)
     import bibgraft
     return bibgraft
-
-# --- add mode -----------------------------------------------------------------
-
-def cmd_add(con, args, text, entries, color):
-    """Fetch entries from the DB by id and append them to the .bib (or stdout)."""
-    c = _colorer(color)
-    out = sys.stderr if args.dry_run else sys.stdout
-    used = {e.key for e in entries}
-    have_doi = {strip_doi(e.get("doi")).lower() for e in entries if e.get("doi")}
-    have_tn = {norm_title(e.get("title")) for e in entries if e.get("title")}
-
-    specs = [s for spec in args.add for s in spec.split(",") if s.strip()]
-    blocks = []
-    for spec in specs:
-        key, sep, idstr = spec.partition("=")
-        if not sep:
-            key, idstr = "", key
-        idstr = idstr.strip()
-        row = resolve_id(con, idstr)
-        if row is None:
-            print(c.red("✗ not found: %s" % idstr), file=out)
-            continue
-        d, tn = strip_doi(row["doi"]).lower(), norm_title(row["title"])
-        if (d and d in have_doi) or tn in have_tn:
-            print(c.yellow("• already present, skipped: %s (%s)" % (idstr, row["key"])),
-                  file=out)
-            continue
-        key = key.strip() or gen_citekey(row, used)
-        if key in used:
-            print(c.red("✗ cite key already in use: %s" % key), file=out)
-            continue
-        used.add(key); have_tn.add(tn); have_doi.add(d)
-        blocks.append(to_bibtex(con, key, row, args.short))
-        print(c.green("+ added [%s] <- %s" % (key, row["key"])), file=out)
-
-    payload = "".join("\n" + b + "\n" for b in blocks)
-    if not blocks:
-        return 1
-    if args.dry_run:
-        sys.stdout.write(payload.lstrip("\n"))
-    else:
-        sep = "" if (not text or text.endswith("\n")) else "\n"
-        with open(args.bib, "a", encoding="utf-8") as f:
-            f.write(sep + payload)
-    return 0
 
 # --- per-entry processing -----------------------------------------------------
 
@@ -1064,10 +991,6 @@ def main():
     ap.add_argument("--safe", action="store_true",
                     help="restrict the recommended set to confident (non-review) proposals "
                          "(affects --oneline and the 'all'/'interactive' modes of --apply/--mute)")
-    ap.add_argument("--add", action="append", default=[], metavar="[KEY=]ID",
-                    help="add an entry fetched from the DB by DOI / arXiv id / DBLP key "
-                         "and append it to the .bib (repeatable; KEY sets the cite key, "
-                         "otherwise one is generated). With -n, print to stdout instead.")
     ap.add_argument("--short", action="store_true",
                     help="prefer the short venue form (a journal's abbreviation, a "
                          "conference's 'Proc. {ACRONYM}') instead of the full official name; "
@@ -1111,8 +1034,6 @@ def main():
         text = f.read()
     entries = parse_bib(text)
 
-    if args.add:
-        return cmd_add(con, args, text, entries, color)
     if args.show is not None:
         return cmd_show(con, entries, args.short, args.show, color)
 
