@@ -9,6 +9,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 import bibgraft as bg  # noqa: E402
+import bibspan as bs  # noqa: E402
 
 # brace / 2-space / no trailing comma / lowercase names; field order author<title<year
 BRACE = (
@@ -86,11 +87,9 @@ class ParseInfer(unittest.TestCase):
         self.assertIn("--space=4", delta)
 
 
-@unittest.skipUnless(os.path.isdir(bg._VENDORED),
-                     "vendored bibtexparser submodule not checked out")
 class VendoredBibtexparser(unittest.TestCase):
     def test_core_loads_and_splits_without_middleware(self):
-        bp = bg.bibtexparser_core()
+        bp = bs.bibtexparser_core()
         lib = bp.splitter.Splitter(BRACE).split()
         self.assertEqual([(e.entry_type, e.key) for e in lib.entries],
                          [("article", "Yu2021"), ("inproceedings", "Smith2020")])

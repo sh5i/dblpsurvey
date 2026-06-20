@@ -39,10 +39,14 @@ dblp2text: dblp_text.go go.mod
 # Verify the Go and Ruby extractors agree and the emitted SQL builds a queryable DB
 # (test/run.sh), then the dblpbib .bib-checker (test/test_dblpbib.py) and the bibgraft
 # .bib editor (test/test_bibgraft.py) against fixtures.
-test: dblp2text
+test: dblp2text vendor/bibtexparser/bibtexparser/splitter.py
 	@./test/run.sh
 	@python3 test/test_dblpbib.py
 	@python3 test/test_bibgraft.py
+
+# bibgraft/bibspan depend on the vendored bibtexparser submodule; fetch it if absent.
+vendor/bibtexparser/bibtexparser/splitter.py:
+	git submodule update --init vendor/bibtexparser
 
 dblp.txt.gz: dblp.xml.gz dblp.dtd config.yaml $(EXTRACT_DEP)
 	gunzip -c dblp.xml.gz \
