@@ -36,13 +36,13 @@ $ cd dblpsurvey
 $ cp config-se.yaml config.yaml
 # (Edit config.yaml as you like)
 $ make
-$ sudo make install   # this just does: ln -s $(realpath ./dblpsurvey) /usr/local/bin/
+$ sudo make install   # this just does: ln -s $(realpath ./bin/dblpsurvey) /usr/local/bin/
 ```
 The `make` first downloads the DBLP XML database file from https://dblp.org/, then filters it by the preference in `config.yaml` and converts the selected entries to a simple text in a single pass, each line representing a DBLP entry (`<article>` or `<inproceedings>`).
 Such a text file is suitable for the grep-based search.
 `make` also builds `dblp.db`, a SQLite database for structured and full-text queries (see [Database](#database-dblpdb)). Generated files are git-ignored: the data (XML download, `dblp.txt.gz`, `dblp.db`) lives under `data/`, and the compiled extractor (`dblp2text`) under `build/`.
 
-The two extractors are interchangeable: `dblp_text.go` (default) and `dblp_text.rb` (`make EXTRACTOR=ruby`, no Go toolchain needed). `make test` checks that they produce identical output.
+The two extractors are interchangeable: `src/dblp_text.go` (default) and `src/dblp_text.rb` (`make EXTRACTOR=ruby`, no Go toolchain needed). `make test` checks that they produce identical output.
 
 ## Configuration
 `config.yaml` selects what to extract. Two ready-made presets are shipped — copy one and edit:

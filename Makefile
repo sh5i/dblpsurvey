@@ -8,8 +8,8 @@ ifeq ($(EXTRACTOR),go)
 EXTRACT     = ./build/dblp2text
 EXTRACT_DEP = build/dblp2text
 else
-EXTRACT     = ruby dblp_text.rb
-EXTRACT_DEP = dblp_text.rb
+EXTRACT     = ruby src/dblp_text.rb
+EXTRACT_DEP = src/dblp_text.rb
 endif
 
 # build/ holds compiled output (the Go extractor); data/ holds the dblp dataset (the XML
@@ -21,7 +21,7 @@ build data:
 	mkdir -p $@
 
 install:
-	ln -s $(realpath ./dblpsurvey) /usr/local/bin/
+	ln -s $(realpath ./bin/dblpsurvey) /usr/local/bin/
 
 data/dblp.dtd: | data
 	curl --fail -L https://dblp.org/xml/dblp.dtd -o $@
@@ -39,8 +39,8 @@ clean:
 distclean: clean
 	rm -f data/dblp.xml.gz data/dblp.xml.gz.0 data/dblp.dtd
 
-build/dblp2text: dblp_text.go go.mod | build
-	go build -o $@ .
+build/dblp2text: src/dblp_text.go go.mod | build
+	go build -o $@ ./src
 
 # Verify the Go and Ruby extractors agree and the emitted SQL builds a queryable DB
 # (test/run.sh), then the dblpbib .bib-checker (test/test_dblpbib.py) and the bibgraft
@@ -62,9 +62,9 @@ data/dblp.txt.gz: data/dblp.xml.gz data/dblp.dtd config.yaml $(EXTRACT_DEP) | da
 # SQLite database for structured / agent queries (needs the sqlite3 CLI with FTS5).
 # Final step derives clean conference names into proceedings.{kind,ordinal,conf_name,...}
 # (Ruby post-pass, no LLM/network; the raw proceedings.title is left untouched).
-data/dblp.db: data/dblp.xml.gz data/dblp.dtd config.yaml schema.sql dblp_confname.rb $(EXTRACT_DEP) | data
+data/dblp.db: data/dblp.xml.gz data/dblp.dtd config.yaml src/schema.sql src/dblp_confname.rb $(EXTRACT_DEP) | data
 	rm -f $@
-	sqlite3 $@ < schema.sql
+	sqlite3 $@ < src/schema.sql
 	gunzip -c data/dblp.xml.gz | $(EXTRACT) --format=sql --config=config.yaml --dtd=data/dblp.dtd | sqlite3 $@
 	sqlite3 $@ "INSERT INTO fts(key,title,authors) SELECT key,title,authors FROM entries;"
-	ruby dblp_confname.rb $@ | sqlite3 $@
+	ruby src/dblp_confname.rb $@ | sqlite3 $@

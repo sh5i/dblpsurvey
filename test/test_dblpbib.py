@@ -12,7 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # dblpbib is an executable CLI with no .py extension, so load it from its path.
 from importlib.machinery import SourceFileLoader            # noqa: E402
 from importlib.util import module_from_spec, spec_from_loader  # noqa: E402
-_loader = SourceFileLoader("dblpbib", os.path.join(ROOT, "dblpbib"))
+_loader = SourceFileLoader("dblpbib", os.path.join(ROOT, "bin", "dblpbib"))
 bc = module_from_spec(spec_from_loader("dblpbib", _loader))
 _loader.exec_module(bc)
 
@@ -27,7 +27,7 @@ def _ins_entry(con, **f):
 def build_db(path):
     con = sqlite3.connect(path)
     con.row_factory = sqlite3.Row
-    with open(os.path.join(ROOT, "schema.sql"), encoding="utf-8") as fh:
+    with open(os.path.join(ROOT, "src", "schema.sql"), encoding="utf-8") as fh:
         con.executescript(fh.read())
     con.execute("INSERT INTO proceedings(key,title,booktitle,year,kind,ordinal,conf_name,canonical) "
                 "VALUES (?,?,?,?,?,?,?,?)",

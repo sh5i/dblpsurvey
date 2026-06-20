@@ -17,7 +17,7 @@ DTD=test/test.dtd
 FIX=test/fixture.xml
 CFG=test/config.yaml
 DB=$TMP/test.db
-RB="ruby dblp_text.rb"
+RB="ruby src/dblp_text.rb"
 GO=./build/dblp2text
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -35,10 +35,10 @@ $GO --format=sql --config="$CFG" --dtd="$DTD" < "$FIX" | sort > "$TMP/go.sql"
 cmp -s "$TMP/rb.sql" "$TMP/go.sql" || { diff "$TMP/rb.sql" "$TMP/go.sql"; fail "sql: ruby != go"; }
 
 # 3. the sql builds a queryable db
-sqlite3 "$DB" < schema.sql
+sqlite3 "$DB" < src/schema.sql
 $GO --format=sql --config="$CFG" --dtd="$DTD" < "$FIX" | sqlite3 "$DB"
 q "INSERT INTO fts(key,title,authors) SELECT key,title,authors FROM entries;"
-ruby dblp_confname.rb "$DB" | sqlite3 "$DB"
+ruby src/dblp_confname.rb "$DB" | sqlite3 "$DB"
 
 eq "row count"                  "$(q 'SELECT count(*) FROM entries')" 3
 eq "title_norm"                 "$(q "SELECT key FROM entries WHERE title_norm='onh2orefactoring'")" journals/tse/MuellerA14

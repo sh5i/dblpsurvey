@@ -31,7 +31,7 @@ import sys
 # --- vendored bibtexparser (the tokeniser) ------------------------------------
 
 _VENDORED = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         "vendor", "bibtexparser", "bibtexparser")
+                         "..", "vendor", "bibtexparser", "bibtexparser")
 
 
 def bibtexparser_core():

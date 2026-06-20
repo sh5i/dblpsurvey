@@ -35,7 +35,7 @@ replace) or `*` (everything for that entry).  A suppressed proposal is hidden, o
 --apply / --mute, and does NOT count toward the CI-failing mismatches; a selector that
 matches nothing is reported as stale.
 
-The DB defaults to data/dblp.db beside this script (override with --db or the DBLP_DB env var).
+The DB defaults to data/dblp.db at the repo root (override with --db or the DBLP_DB env var).
 A missing database is treated as "skip" (exit 0) so it never blocks a build.
 """
 
@@ -50,15 +50,17 @@ import subprocess
 import sys
 import unicodedata
 
-_HERE = os.path.dirname(os.path.abspath(__file__))   # for the default dblp.db location
+_HERE = os.path.dirname(os.path.abspath(__file__))          # bin/
+_ROOT = os.path.dirname(_HERE)                              # repo root (bin/'s parent)
+_SRC = os.path.join(_ROOT, "src")                           # where bibspan / bibgraft live
 
 
 def _sibling(name):
-    """Import a sibling module (bibspan / bibgraft) lazily.  They pull in the vendored
-    bibtexparser submodule, so only real work (parsing, applying) needs it -- `--help` and
-    the no-database skip path stay dependency-free."""
-    if _HERE not in sys.path:
-        sys.path.insert(0, _HERE)
+    """Import a sibling module (bibspan / bibgraft, from src/) lazily.  They pull in the
+    vendored bibtexparser submodule, so only real work (parsing, applying) needs it --
+    `--help` and the no-database skip path stay dependency-free."""
+    if _SRC not in sys.path:
+        sys.path.insert(0, _SRC)
     return __import__(name)
 
 # --- normalization helpers (must mirror dblpsurvey's extractor) ---------------
@@ -915,8 +917,8 @@ def report(findings, selectors, counts, color, verbose, show_suppressed):
 def main():
     ap = argparse.ArgumentParser(description="Check/fix a .bib file against dblp.db")
     ap.add_argument("bib")
-    ap.add_argument("--db", default=os.environ.get("DBLP_DB") or os.path.join(_HERE, "data", "dblp.db"),
-                    help="path to dblp.db (default: data/dblp.db beside this script; or set DBLP_DB)")
+    ap.add_argument("--db", default=os.environ.get("DBLP_DB") or os.path.join(_ROOT, "data", "dblp.db"),
+                    help="path to dblp.db (default: data/dblp.db at the repo root; or set DBLP_DB)")
     MODES = ("interactive", "stdin", "all")
     ap.add_argument("--oneline", action="store_true",
                     help="flat one-proposal-per-line view of the report (no entry grouping or "

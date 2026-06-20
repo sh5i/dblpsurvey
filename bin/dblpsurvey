@@ -33,7 +33,7 @@ else
   PBCOPY=(true)
 fi
 
-db="$(dirname "$(realpath "$0")")/data/dblp.txt.gz"
+db="$(dirname "$(realpath "$0")")/../data/dblp.txt.gz"
 if [ ! -f "$db" ]; then
   echo "dblpsurvey: $db not found; run 'make' first." >&2
   exit 1
