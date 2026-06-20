@@ -5,12 +5,14 @@ A quick & fast survey tool that turns the [dblp](https://dblp.org/) database int
 
 ## Usage
 ```
-$ dblpsurvey [-k] [-d] [-p PROFILE] [keyword...]
+$ dblpsurvey [-k] [-d] [-p PROFILE] [-b | -i FILE] [keyword...]
 ```
 Options:
 - `-k`: Remove DBLP keys from the output
 - `-d`: Remove DOI URLs from the output
 - `-p PROFILE`: search the `PROFILE` database (`data/PROFILE.txt.gz`); default `default` (see [Profiles](#profiles))
+- `-b`: print the picked entries as BibTeX (via `dblpcite`, DBLP record → BibTeX)
+- `-i FILE`: insert the picked entries (as BibTeX) into `FILE`, in that file's own conventions (`dblpcite` + `bibgraft`)
 - `keyword`: Used as initial keywords when specified
 
 When running `dblpsurvey`, you can select your favorite lines if you have installed incremental search tools such as `fzf` or `peco`.

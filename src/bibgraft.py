@@ -409,7 +409,7 @@ def apply(text, ops, warn=None):
             out += nl
         sep = nl * fs["blank_lines"]
         for block in appends:
-            out += sep + block + nl
+            out += (sep if out else "") + block + nl    # no leading blank at start of file
     return out, applied, skipped
 
 
@@ -458,8 +458,12 @@ def main():
                     help="report applied / skipped ops on stderr")
     args = ap.parse_args()
 
-    with open(args.file, encoding="utf-8") as fh:
-        text = fh.read()
+    # A missing file is treated as empty -- so `--insert` into a not-yet-existing .bib
+    # creates it; an op stream that resolves nothing simply writes nothing.
+    text = ""
+    if os.path.exists(args.file):
+        with open(args.file, encoding="utf-8") as fh:
+            text = fh.read()
 
     if args.insert:
         raw = sys.stdin.read()

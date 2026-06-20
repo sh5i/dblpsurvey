@@ -139,6 +139,14 @@ class CoreOps(unittest.TestCase):
         self.assertNotIn("Yu2021", out)
         self.assertTrue(out.startswith("@inproceedings{Smith2020"))
 
+    def test_add_entry_into_empty_text_no_leading_blank(self):
+        op = {"op": "add-entry", "key": "New",
+              "value": "@article{New, title={N}, year={2030}}"}
+        out, applied, _ = bg.apply("", [op])
+        self.assertEqual(len(applied), 1)
+        self.assertTrue(out.startswith("@article{New,"))   # no blank line before the first entry
+        self.assertTrue(out.endswith("}\n"))
+
     def test_add_entry_normalises_order_and_style(self):
         op = {"op": "add-entry", "key": "New",
               "value": "@article{New, year={2030}, title={N}, author={Z}}"}

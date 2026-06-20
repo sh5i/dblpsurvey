@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""dblpcite -- turn DBLP keys into BibTeX entries (a thin consumer of the dblp.db domain
+layer; not a linter -- it neither reads nor edits a .bib).
+
+Reads keys on stdin -- one per line, or dblpsurvey output lines whose leading `(key)` is
+used -- and prints a BibTeX entry for each, under a generated <Family><Year> citation key:
+
+  dblpsurvey deep learning | dblpcite | bibgraft refs.bib --insert
+
+The DB is chosen by --profile (data/<profile>.db, default 'default') or --db PATH.  A key
+not in the DB is skipped with a note on stderr.
+"""
+
+import argparse
+import os
+import re
+import sqlite3
+import sys
+
+_HERE = os.path.dirname(os.path.abspath(__file__))      # bin/
+_ROOT = os.path.dirname(_HERE)                          # repo root
+sys.path.insert(0, os.path.join(_ROOT, "src"))
+from dblpdb import Db  # noqa: E402
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _key(line):
+    """The DBLP key in a line: the leading `(key)` (dblpsurvey form) if present, else the
+    first whitespace token.  ANSI colour is stripped first; a blank line yields None."""
+    s = _ANSI.sub("", line).strip()
+    if not s:
+        return None
+    m = re.match(r"\(([^)]+)\)", s)
+    return m.group(1) if m else s.split()[0]
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Turn DBLP keys (stdin) into BibTeX entries")
+    ap.add_argument("--profile", default="default", metavar="NAME",
+                    help="DB built from config/NAME.yaml -- data/NAME.db (default: 'default')")
+    ap.add_argument("--db", default=None, help="explicit path to a dblp.db (overrides --profile)")
+    ap.add_argument("--short", action="store_true",
+                    help="use the short venue form (a journal's abbreviation / 'Proc. {ACRONYM}')")
+    args = ap.parse_args()
+
+    db_path = args.db or os.path.join(_ROOT, "data", args.profile + ".db")
+    if not os.path.exists(db_path):
+        sys.stderr.write("dblpcite: no dblp.db at %s; build it with `make PROFILE=%s` "
+                         "(or pass --db PATH).\n" % (db_path, args.profile))
+        return 1
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    db = Db(con)
+
+    used, out = set(), []
+    for line in sys.stdin:
+        key = _key(line)
+        if not key:
+            continue
+        rec = db.by_key(key)
+        if rec is None:
+            sys.stderr.write("dblpcite: not in DB, skipped: %s\n" % key)
+            continue
+        ck = rec.suggest_key(used)
+        used.add(ck)
+        out.append(rec.to_bibtex(ck, args.short))
+    if out:
+        sys.stdout.write("\n\n".join(out) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

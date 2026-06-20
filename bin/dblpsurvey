@@ -1,17 +1,23 @@
 #!/bin/bash
 
 PROFILE=default
+BIBTEX=0
+INSERT=""
 KEY_FILTER=(cat)
 DOI_FILTER=(cat)
-while getopts kdp: OPT; do
+while getopts kdp:bi: OPT; do
   case $OPT in
     k) KEY_FILTER=(perl -pe 's/^[^ ]+ //') ;;
     d) DOI_FILTER=(perl -pe 's/ [^ ]*\n$/\n/') ;;
     p) PROFILE=$OPTARG ;;                  # search the data/<PROFILE>.txt.gz text DB
+    b) BIBTEX=1 ;;                         # emit the picks as BibTeX to stdout
+    i) INSERT=$OPTARG ;;                   # insert the picks (as BibTeX) into the given .bib
     *) exit 1 ;;
   esac
 done
 shift $((OPTIND - 1))
+
+here="$(dirname "$(realpath "$0")")"
 
 query="$*"
 
@@ -35,7 +41,7 @@ else
   PBCOPY=(true)
 fi
 
-db="$(dirname "$(realpath "$0")")/../data/${PROFILE}.txt.gz"
+db="$here/../data/${PROFILE}.txt.gz"
 if [ ! -f "$db" ]; then
   echo "dblpsurvey: $db not found; run 'make PROFILE=$PROFILE' first." >&2
   exit 1
@@ -44,6 +50,19 @@ fi
 selection=$(gunzip -c "$db" | "${PICKER[@]}")
 # Don't clobber the clipboard when nothing was selected (e.g. aborted with ESC).
 [ -n "$selection" ] || exit 0
+
+# -b / -i: serialise the picks to BibTeX (dblpcite, via the dblp.db domain layer).  -b prints
+# them to stdout; -i FILE inserts them into FILE with bibgraft (preserving its conventions).
+if [ "$BIBTEX" = 1 ] || [ -n "$INSERT" ]; then
+  bibtex=$(printf '%s\n' "$selection" | "$here/dblpcite" --profile "$PROFILE") || exit 1
+  [ -n "$bibtex" ] || exit 0
+  if [ -n "$INSERT" ]; then
+    printf '%s' "$bibtex" | python3 "$here/../src/bibgraft.py" "$INSERT" --insert
+  else
+    printf '%s' "$bibtex"
+  fi
+  exit 0
+fi
 
 printf '%s\n' "$selection" \
   | "${KEY_FILTER[@]}" \
