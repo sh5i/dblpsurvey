@@ -105,6 +105,12 @@ class Entry:
         low = name.lower()
         return next((f for f in self.fields if f.name.lower() == low), None)
 
+    def get(self, name, default=""):
+        """The value of field `name` (case-insensitive), or `default` -- a convenience for
+        consumers that just want the text; identical to `field(name).value`."""
+        f = self.field(name)
+        return f.value if f else default
+
 
 # --- parse: bibtexparser's Splitter, subclassed to keep the spans it discards --
 

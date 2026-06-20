@@ -52,6 +52,15 @@ import unicodedata
 
 _HERE = os.path.dirname(os.path.abspath(__file__))   # for the default dblp.db location
 
+
+def _sibling(name):
+    """Import a sibling module (bibspan / bibgraft) lazily.  They pull in the vendored
+    bibtexparser submodule, so only real work (parsing, applying) needs it -- `--help` and
+    the no-database skip path stay dependency-free."""
+    if _HERE not in sys.path:
+        sys.path.insert(0, _HERE)
+    return __import__(name)
+
 # --- normalization helpers (must mirror dblpsurvey's extractor) ---------------
 
 def norm_title(s):
@@ -115,25 +124,11 @@ def surnames(s):
             out.add(f)
     return out
 
-# --- a small .bib parser (for matching against the DB) ------------------------
-# Reads each entry's type, key and field values.  Edits are delegated to bibgraft,
-# which re-resolves positions from (key, field), so no byte offsets are tracked here.
-
-class Field:
-    __slots__ = ("name", "value")
-
-    def __init__(self, name, value):
-        self.name, self.value = name, value
-
-class Entry:
-    def __init__(self, etype, key, fields):
-        self.type = etype          # 'article' | 'inproceedings' | 'misc'
-        self.key = key
-        self.fields = fields       # dict name -> Field
-
-    def get(self, name):
-        f = self.fields.get(name)
-        return f.value if f else ""
+# --- entry parsing (via bibspan, the shared bibtexparser-backed parser) -------
+# dblpbib only needs each entry's type, key and field values to match it against the DB,
+# all of which bibspan's Entry already exposes (.type / .key / .get).  Reusing it -- the
+# very parser bibgraft.apply uses -- means a check and a later --apply resolve exactly the
+# same entries (no two-parser drift).
 
 def _match_brace(text, i):
     depth = 0
@@ -148,52 +143,11 @@ def _match_brace(text, i):
     return len(text) - 1
 
 def parse_bib(text):
-    """Parse @article/@inproceedings/@misc entries (type, key, field values). Assumes
-    brace- or quote-delimited values (the common generated-.bib form); @string macros and
-    value concatenation ('a # b') are not interpreted."""
-    entries = []
-    for m in re.finditer(r"@(\w+)\s*\{", text):
-        etype = m.group(1).lower()
-        open_brace = m.end() - 1
-        close_brace = _match_brace(text, open_brace)
-        body = text[m.end():close_brace]
-        comma = body.find(",")
-        if comma < 0:
-            continue
-        key = body[:comma].strip()
-        fields = {}
-        i = comma + 1
-        n = len(body)
-        while i < n:
-            fm = re.match(r"\s*(\w+)\s*=\s*", body[i:])
-            if not fm:
-                break
-            name = fm.group(1).lower()
-            j = i + fm.end()
-            if j >= n:
-                break
-            c = body[j]
-            if c == "{":
-                k = _match_brace(body, j)
-                value, ve = body[j + 1:k], k + 1
-            elif c == '"':
-                k = body.find('"', j + 1)
-                if k < 0:
-                    break
-                value, ve = body[j + 1:k], k + 1
-            else:
-                k = j
-                while k < n and body[k] not in ",}":
-                    k += 1
-                value, ve = body[j:k].strip(), k
-            fields[name] = Field(name, value.strip())
-            i = ve
-            nxt = body.find(",", i)
-            i = nxt + 1 if nxt >= 0 else n
-        # @misc is kept so arXiv preprints can be checked for a published version
-        if etype in ("article", "inproceedings", "misc"):
-            entries.append(Entry(etype, key, fields))
-    return entries
+    """Parse @article/@inproceedings (and arXiv @misc) entries with bibspan. @string/
+    @preamble/@comment (including the dblpbib-ignore block) and other types are skipped;
+    @misc is kept so arXiv preprints can be checked for a published version."""
+    return [e for e in _sibling("bibspan").parse(text)
+            if e.type in ("article", "inproceedings", "misc")]
 
 # --- database lookup ----------------------------------------------------------
 
@@ -442,17 +396,6 @@ def compare(con, entry, row, short=False):
             reviews.append((vfield, cur, target, note))
 
     return edits, reviews, adds
-
-# --- edit application (delegated to bibgraft) ---------------------------------
-
-def _bibgraft():
-    """Import bibgraft lazily: only the apply path uses it, and it (via bibspan) pulls in
-    the vendored bibtexparser submodule -- so reporting/checking stays dependency-light and
-    only `--apply`/`--mute` writes need the submodule present."""
-    if _HERE not in sys.path:
-        sys.path.insert(0, _HERE)
-    import bibgraft
-    return bibgraft
 
 # --- per-entry processing -----------------------------------------------------
 
@@ -811,7 +754,7 @@ def _apply_ids(text, props, ids):
     replaced = {p["id"].rsplit(":", 1)[0] for p in chosen if p["op"] == "replace"}
     chosen = [p for p in chosen
               if p["op"] == "replace" or p["id"].rsplit(":", 1)[0] not in replaced]
-    new_text, done, _ = _bibgraft().apply(text, [p["op_bib"] for p in chosen])
+    new_text, done, _ = _sibling("bibgraft").apply(text, [p["op_bib"] for p in chosen])
     applied = {id(o) for o in done}                  # bibgraft returns our op dicts verbatim
     return new_text, [p for p in chosen if id(p["op_bib"]) in applied], missing
 
