@@ -35,7 +35,7 @@ replace) or `*` (everything for that entry).  A suppressed proposal is hidden, o
 --apply / --mute, and does NOT count toward the CI-failing mismatches; a selector that
 matches nothing is reported as stale.
 
-The DB defaults to dblp.db beside this script (override with --db or the DBLP_DB env var).
+The DB defaults to data/dblp.db beside this script (override with --db or the DBLP_DB env var).
 A missing database is treated as "skip" (exit 0) so it never blocks a build.
 """
 
@@ -915,8 +915,8 @@ def report(findings, selectors, counts, color, verbose, show_suppressed):
 def main():
     ap = argparse.ArgumentParser(description="Check/fix a .bib file against dblp.db")
     ap.add_argument("bib")
-    ap.add_argument("--db", default=os.environ.get("DBLP_DB") or os.path.join(_HERE, "dblp.db"),
-                    help="path to dblp.db (default: dblp.db beside this script; or set DBLP_DB)")
+    ap.add_argument("--db", default=os.environ.get("DBLP_DB") or os.path.join(_HERE, "data", "dblp.db"),
+                    help="path to dblp.db (default: data/dblp.db beside this script; or set DBLP_DB)")
     MODES = ("interactive", "stdin", "all")
     ap.add_argument("--oneline", action="store_true",
                     help="flat one-proposal-per-line view of the report (no entry grouping or "

@@ -4,7 +4,7 @@
 # and the emitted sql must build a queryable dblp.db. Multiset comparison (sort) since
 # the tie-order of equal-key entries differs between the two.
 #
-# Run via `make test` (which builds ./dblp2text first), or directly: ./test/run.sh
+# Run via `make test` (which builds ./build/dblp2text first), or directly: ./test/run.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."   # repo root
 
@@ -18,7 +18,7 @@ FIX=test/fixture.xml
 CFG=test/config.yaml
 DB=$TMP/test.db
 RB="ruby dblp_text.rb"
-GO=./dblp2text
+GO=./build/dblp2text
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 q()    { sqlite3 "$DB" "$1"; }

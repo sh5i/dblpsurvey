@@ -40,7 +40,7 @@ $ sudo make install   # this just does: ln -s $(realpath ./dblpsurvey) /usr/loca
 ```
 The `make` first downloads the DBLP XML database file from https://dblp.org/, then filters it by the preference in `config.yaml` and converts the selected entries to a simple text in a single pass, each line representing a DBLP entry (`<article>` or `<inproceedings>`).
 Such a text file is suitable for the grep-based search.
-`make` also builds `dblp.db`, a SQLite database for structured and full-text queries (see [Database](#database-dblpdb)).
+`make` also builds `dblp.db`, a SQLite database for structured and full-text queries (see [Database](#database-dblpdb)). Generated files are git-ignored: the data (XML download, `dblp.txt.gz`, `dblp.db`) lives under `data/`, and the compiled extractor (`dblp2text`) under `build/`.
 
 The two extractors are interchangeable: `dblp_text.go` (default) and `dblp_text.rb` (`make EXTRACTOR=ruby`, no Go toolchain needed). `make test` checks that they produce identical output.
 
@@ -74,8 +74,8 @@ year:
 A config that selects no venues is rejected; use `"*"` if you really want everything.
 
 ## Database (`dblp.db`)
-`make` also builds a SQLite database `dblp.db` for structured and full-text queries — handy for scripts, or for checking/cleaning a `.bib` against DBLP offline.
-Build it alone with `make dblp.db` (needs the `sqlite3` CLI with FTS5).
+`make` also builds `build/dblp.db`, a SQLite database for structured and full-text queries — handy for scripts, or for checking/cleaning a `.bib` against DBLP offline.
+Build it alone with `make data/dblp.db` (needs the `sqlite3` CLI with FTS5).
 
 Its core is one flat table `entries` plus a full-text table `fts`, with two small lookup tables (`proceedings`, `journals`) you can join for clean venue/journal names:
 
