@@ -5,11 +5,12 @@ A quick & fast survey tool that turns the [dblp](https://dblp.org/) database int
 
 ## Usage
 ```
-$ dblpsurvey [-k] [-d] [keyword...]
+$ dblpsurvey [-k] [-d] [-p PROFILE] [keyword...]
 ```
 Options:
 - `-k`: Remove DBLP keys from the output
 - `-d`: Remove DOI URLs from the output
+- `-p PROFILE`: search the `PROFILE` database (`data/PROFILE.txt.gz`); default `default` (see [Profiles](#profiles))
 - `keyword`: Used as initial keywords when specified
 
 When running `dblpsurvey`, you can select your favorite lines if you have installed incremental search tools such as `fzf` or `peco`.
@@ -40,14 +41,24 @@ $ sudo make install   # this just does: ln -s $(realpath ./bin/dblpsurvey) /usr/
 ```
 The `make` first downloads the DBLP XML database file from https://dblp.org/, then filters it by the preference in `config/default.yaml` and converts the selected entries to a simple text in a single pass, each line representing a DBLP entry (`<article>` or `<inproceedings>`).
 Such a text file is suitable for the grep-based search.
-`make` also builds `dblp.db`, a SQLite database for structured and full-text queries (see [Database](#database-dblpdb)). Generated files are git-ignored: the data (XML download, `dblp.txt.gz`, `dblp.db`) lives under `data/`, and the compiled extractor (`dblp2text`) under `build/`.
+`make` also builds a SQLite database for structured and full-text queries (see [Database](#database-dblpdb)). Generated files are git-ignored: the dataset under `data/` (the shared XML download plus each profile's `data/NAME.{txt.gz,db}`), and the compiled extractor (`dblp2text`) under `build/`.
 
 The two extractors are interchangeable: `src/dblp_text.go` (default) and `src/dblp_text.rb` (`make EXTRACTOR=ruby`, no Go toolchain needed). `make test` checks that they produce identical output.
 
 ## Configuration
-`config/default.yaml` selects what to extract. Two ready-made presets are shipped under `config/` — copy one and edit:
+`config/default.yaml` selects what to extract. Two ready-made profiles are shipped under `config/` — copy one and edit:
 - `config/sample-se.yaml` — a curated software-engineering set of journals and conferences (well commented).
 - `config/sample-all.yaml` — no filtering (`"*"` matches every venue; the whole of DBLP, huge and slow — see the warning inside).
+
+### Profiles
+A **profile** `NAME` pairs `config/NAME.yaml` with its own databases `data/NAME.{txt.gz,db}`, so you can keep several surveys side by side (the multi-gigabyte XML download is shared). The setup above used the `default` profile (the one chosen when none is named); add another by copying a config to a new name and building it:
+```
+# write config/ml.yaml (start from a sample, or copy config/default.yaml), then
+$ make PROFILE=ml                            # → data/ml.txt.gz, data/ml.db
+$ dblpsurvey -p ml deep learning             # search the ml text DB
+$ dblpbib --profile ml refs.bib              # check a .bib against the ml DB
+```
+Your profiles (including `default.yaml`) are git-ignored; only the `sample-*.yaml` are tracked.
 
 ```yaml
 journals:

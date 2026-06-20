@@ -1,11 +1,13 @@
 #!/bin/bash
 
+PROFILE=default
 KEY_FILTER=(cat)
 DOI_FILTER=(cat)
-while getopts kd OPT; do
+while getopts kdp: OPT; do
   case $OPT in
     k) KEY_FILTER=(perl -pe 's/^[^ ]+ //') ;;
     d) DOI_FILTER=(perl -pe 's/ [^ ]*\n$/\n/') ;;
+    p) PROFILE=$OPTARG ;;                  # search the data/<PROFILE>.txt.gz text DB
     *) exit 1 ;;
   esac
 done
@@ -33,9 +35,9 @@ else
   PBCOPY=(true)
 fi
 
-db="$(dirname "$(realpath "$0")")/../data/dblp.txt.gz"
+db="$(dirname "$(realpath "$0")")/../data/${PROFILE}.txt.gz"
 if [ ! -f "$db" ]; then
-  echo "dblpsurvey: $db not found; run 'make' first." >&2
+  echo "dblpsurvey: $db not found; run 'make PROFILE=$PROFILE' first." >&2
   exit 1
 fi
 

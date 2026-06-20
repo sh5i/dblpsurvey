@@ -18,6 +18,7 @@ stable id `citekey:field` (or `citekey:@` for an arXiv->published whole-entry sw
   dblpbib refs.bib --show ID             # one proposal's full before/after (fzf preview)
   dblpbib refs.bib -a                    # also show suppressed (ignored) proposals
   dblpbib refs.bib --ignore key:doi      # suppress one proposal for this run (ephemeral)
+  dblpbib refs.bib --profile ml           # check against the 'ml' profile DB (data/ml.db)
 
 Proposals you have deliberately decided not to change can be silenced.  An in-file
 block (travels with the .bib; @comment is ignored by BibTeX/biblatex) lists selectors
@@ -35,7 +36,8 @@ replace) or `*` (everything for that entry).  A suppressed proposal is hidden, o
 --apply / --mute, and does NOT count toward the CI-failing mismatches; a selector that
 matches nothing is reported as stale.
 
-The DB defaults to data/dblp.db at the repo root (override with --db or the DBLP_DB env var).
+The DB is chosen by profile: `--profile NAME` uses data/NAME.db (built by `make PROFILE=NAME`
+from config/NAME.yaml); the default profile is `default`. `--db PATH` overrides it.
 A missing database is treated as "skip" (exit 0) so it never blocks a build.
 """
 
@@ -917,8 +919,10 @@ def report(findings, selectors, counts, color, verbose, show_suppressed):
 def main():
     ap = argparse.ArgumentParser(description="Check/fix a .bib file against dblp.db")
     ap.add_argument("bib")
-    ap.add_argument("--db", default=os.environ.get("DBLP_DB") or os.path.join(_ROOT, "data", "dblp.db"),
-                    help="path to dblp.db (default: data/dblp.db at the repo root; or set DBLP_DB)")
+    ap.add_argument("--profile", default="default", metavar="NAME",
+                    help="use the DB built from config/NAME.yaml -- i.e. data/NAME.db (default: 'default')")
+    ap.add_argument("--db", default=None,
+                    help="explicit path to a dblp.db (overrides --profile)")
     MODES = ("interactive", "stdin", "all")
     ap.add_argument("--oneline", action="store_true",
                     help="flat one-proposal-per-line view of the report (no entry grouping or "
@@ -966,14 +970,15 @@ def main():
     else:
         color = args.show is not None or sys.stdout.isatty()
 
-    if not args.db or not os.path.exists(args.db):
+    db = args.db or os.path.join(_ROOT, "data", args.profile + ".db")
+    if not os.path.exists(db):
         sys.stderr.write(
-            "dblpbib: no dblp.db at %s (set --db or DBLP_DB); skipping.\n"
-            "  Build one with dblpsurvey to enable offline bib verification.\n"
-            % (args.db or "?"))
+            "dblpbib: no dblp.db at %s; skipping.\n"
+            "  Build it with `make PROFILE=%s` (or pass --db PATH).\n"
+            % (db, args.profile))
         return 0
 
-    con = sqlite3.connect(args.db)
+    con = sqlite3.connect(db)
     con.row_factory = sqlite3.Row
     with open(args.bib, encoding="utf-8") as f:
         text = f.read()

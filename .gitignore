@@ -1,4 +1,5 @@
-/config/default.yaml
+/config/*.yaml
+!/config/sample-*.yaml
 /build/
 /data/
 
