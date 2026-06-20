@@ -45,7 +45,6 @@ import base64
 import json
 import os
 import re
-import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -54,7 +53,7 @@ import unicodedata
 
 _HERE = os.path.dirname(os.path.abspath(__file__))   # for the default dblp.db location
 
-# --- normalisation helpers (must mirror dblpsurvey's extractor) ---------------
+# --- normalization helpers (must mirror dblpsurvey's extractor) ---------------
 
 def norm_title(s):
     """Title key: keep ASCII [A-Za-z0-9], lowercased -- same rule as dblp.db."""
@@ -119,7 +118,7 @@ def surnames(s):
 
 # --- a small offset-tracking .bib parser --------------------------------------
 # We keep byte offsets so edits can patch individual field values surgically
-# without re-serialising (and thus without disturbing untouched fields/layout).
+# without re-serializing (and thus without disturbing untouched fields/layout).
 
 class Field:
     __slots__ = ("name", "value", "start", "end")  # start/end span the value token
@@ -156,7 +155,7 @@ def _match_brace(text, i):
 
 def parse_bib(text):
     """Parse @article/@inproceedings/@misc entries, keeping byte offsets for surgical
-    surgical edits. Assumes brace- or quote-delimited values (the common generated-.bib
+    edits. Assumes brace- or quote-delimited values (the common generated-.bib
     form); @string macros and value concatenation ('a # b') are not interpreted."""
     entries = []
     for m in re.finditer(r"@(\w+)\s*\{", text):
@@ -268,7 +267,7 @@ def suggest_publication(entry, pub, pre):
     return pub[0] if (entry.type == "misc" or is_arxiv(entry)) else None
 
 def _vn(s):
-    """Normalise a venue string for comparison (ASCII alnum, lowercased)."""
+    """Normalize a venue string for comparison (ASCII alnum, lowercased)."""
     return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
 def venue_forms(con, row):
@@ -276,7 +275,7 @@ def venue_forms(con, row):
 
     `full` is the expanded official name; `short` is the abbreviated form.  These are the
     two proposal targets: the default target is `full`, the --short target is `short`.
-    `full_forms`/`short_forms` are the normalised spellings already acceptable on each
+    `full_forms`/`short_forms` are the normalized spellings already acceptable on each
     side, which makes a venue proposal *directional* -- a spelling sitting on the OTHER
     side is offered expansion (default) or shortening (--short), not just "wrong".
 
@@ -311,7 +310,7 @@ def venue_forms(con, row):
     return full, kind, full_forms, short_forms, short
 
 def to_bibtex(con, citekey, row, short=False):
-    """Serialise a DB row as a BibTeX entry, keeping the user's citation key and
+    """Serialize a DB row as a BibTeX entry, keeping the user's citation key and
     using the full official venue name (or 'Proc. {ACRONYM}' when short)."""
     fields = [("author", authors_to_bib(row["authors"])), ("title", row["title"])]
     full, _kind, _ff, _sf, short_name = venue_forms(con, row)
@@ -458,7 +457,7 @@ def compare(con, entry, row, short=False):
     # venue name: directional on --short.  Default mode prefers the full official name
     # (a short/abbreviated spelling is offered EXPANSION); --short prefers the short form
     # (a long spelling is offered SHORTENING).  A spelling already on the target side is
-    # left untouched; an unrecognised one is a plain venue correction.  Journals live in
+    # left untouched; an unrecognized one is a plain venue correction.  Journals live in
     # the journal field, proceedings in booktitle; venue_forms supplies both sides' forms.
     full, _vk, full_forms, short_forms, short_name = venue_forms(con, row)
     if full or short_name:
@@ -490,8 +489,7 @@ def apply_edits(text, edits):
 
 def cmd_add(con, args, text, entries, color):
     """Fetch entries from the DB by id and append them to the .bib (or stdout)."""
-    def c(code, s):
-        return "\033[%sm%s\033[0m" % (code, s) if color else s
+    c = _colorer(color)
     out = sys.stderr if args.dry_run else sys.stdout
     used = {e.key for e in entries}
     have_doi = {strip_doi(e.get("doi")).lower() for e in entries if e.get("doi")}
@@ -506,20 +504,20 @@ def cmd_add(con, args, text, entries, color):
         idstr = idstr.strip()
         row = resolve_id(con, idstr)
         if row is None:
-            print(c("31", "✗ not found: %s" % idstr), file=out)
+            print(c.red("✗ not found: %s" % idstr), file=out)
             continue
         d, tn = strip_doi(row["doi"]).lower(), norm_title(row["title"])
         if (d and d in have_doi) or tn in have_tn:
-            print(c("33", "• already present, skipped: %s (%s)" % (idstr, row["key"])),
+            print(c.yellow("• already present, skipped: %s (%s)" % (idstr, row["key"])),
                   file=out)
             continue
         key = key.strip() or gen_citekey(row, used)
         if key in used:
-            print(c("31", "✗ cite key already in use: %s" % key), file=out)
+            print(c.red("✗ cite key already in use: %s" % key), file=out)
             continue
         used.add(key); have_tn.add(tn); have_doi.add(d)
         blocks.append(to_bibtex(con, key, row, args.short))
-        print(c("32", "+ added [%s] <- %s" % (key, row["key"])), file=out)
+        print(c.green("+ added [%s] <- %s" % (key, row["key"])), file=out)
 
     payload = "".join("\n" + b + "\n" for b in blocks)
     if not blocks:
@@ -773,42 +771,49 @@ def tally(findings):
 
 # --- present / select / apply -------------------------------------------------
 
+class _Color:
+    """ANSI palette.  Call it with a code for dynamic colors (`c(code, s)`, e.g. an op/status
+    color), or use the named helpers for the fixed ones (`c.green(s)`, `c.dim(s)`, ...).
+    A no-op when color is off."""
+    def __init__(self, on):
+        self._on = on
+
+    def __call__(self, code, s):
+        return "\033[%sm%s\033[0m" % (code, s) if self._on else s
+
+    def bold(self, s):    return self("1", s)
+    def red(self, s):     return self("31", s)
+    def green(self, s):   return self("32", s)
+    def yellow(self, s):  return self("33", s)
+    def dim(self, s):     return self("90", s)
+
 def _colorer(color):
-    return ((lambda code, s: "\033[%sm%s\033[0m" % (code, s)) if color
-            else (lambda code, s: s))
+    return _Color(color)
 
 def _trunc(s, n=90):
     s = " ".join(str(s).split())
     return s if len(s) <= n else s[:n - 1] + "…"
 
-# operation -> (glyph, label, ANSI colour). A review proposal overrides to a yellow "?".
+# operation -> (glyph, label, ANSI color). A review proposal overrides to a yellow "?".
 OP = dict(add=("+", "add", "36"), edit=("~", "edit", "32"), replace=("»", "repl", "35"))
 
 def _op_style(p):
     sym, label, col = OP[p["op"]]
     return ("?", label, "33") if p["review"] else (sym, label, col)
 
-def _op_tag(p):
-    return OP[p["op"]][1] + ("?" if p["review"] else "")    # add / edit / edit? / repl
-
-def _summary(p):
-    if p["op"] == "add":
-        return "+ %s" % p["dblp"]
-    return "%s → %s" % (p["bib"] or "(empty)", p["dblp"])
-
 def render_show(f, p, color):
     """Return the full before/after block for one proposal (the fzf preview body)."""
     c = _colorer(color)
     sym, label, col = _op_style(p)
-    note = ("  " + c("33" if p["review"] else "90", p["note"])) if p["note"] else ""
-    out = ["%s  %s" % (c("1", f["title"]), c("90", f["key"])),
-           "%s %s%s" % (c(col + ";1", "%s %s" % (sym, label)), c("1", p["field"]), note)]
+    note = ("  " + (c.yellow if p["review"] else c.dim)(p["note"])) if p["note"] else ""
+    out = ["%s  %s" % (c.bold(f["title"]), c.dim(f["key"])),
+           "%s %s%s" % (c(col + ";1", "%s %s" % (sym, label)), c.bold(p["field"]), note)]
     if p["op"] == "replace":
-        out += ["  " + c("90", line) for line in p["replacement"].splitlines()]
+        out += ["  " + c.dim(line) for line in p["replacement"].splitlines()]
     else:
         if p["bib"]:
-            out.append("  %s %s" % (c("90", "bib "), c("31", p["bib"])))
-        out.append("  %s %s" % (c("90", "dblp"), c("32", p["dblp"])))
+            out.append("  %s %s" % (c.dim("bib "), c.red(p["bib"])))
+        out.append("  %s %s" % (c.dim("dblp"), c.green(p["dblp"])))
     return "\n".join(out)
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -844,10 +849,10 @@ def _candidates(findings, safe):
             if not p.get("suppressed") and (not safe or not p["review"])]
 
 def _pick(props, findings):
-    """Interactive multi-select over `props` via fzf (with preview) or peco.  Returns the
-    chosen ids, or None if no picker is installed (the caller treats that as an error).
-    fzf renders ANSI (--ansi), so its list rows are coloured like the report; peco gets the
-    plain tab form. Each row hides the id in column 1 and shows the rendered line."""
+    """Interactive multi-select over `props` via fzf (with preview) or peco.  Returns the chosen
+    ids, or None if no picker is installed (the caller treats that as an error).  Both list the
+    rendered proposal line (id trailing, read back by _line_id); fzf colors it (--ansi) and adds
+    a base64-embedded preview pane."""
     picker = shutil.which("fzf") or shutil.which("peco")
     if not picker:
         sys.stderr.write("interactive mode needs fzf or peco; or compose with a pipe: "
@@ -856,16 +861,24 @@ def _pick(props, findings):
     if os.path.basename(picker) == "fzf":
         cc = _colorer(True)
         fmap = {p["id"]: f for f in findings for p in f.get("proposals", [])}
-        lines = ["%s\t%s\t%s" % (p["id"], _proposal_line(cc, p, indent=""),
-                                 base64.b64encode(render_show(fmap[p["id"]], p, True).encode()).decode())
+        lines = ["%s\t%s" % (_proposal_line(cc, p, indent=""),
+                             base64.b64encode(render_show(fmap[p["id"]], p, True).encode()).decode())
                  for p in props]
-        cmd = [picker, "-m", "--ansi", "--delimiter", "\t", "--with-nth", "2",
-               "--preview", "printf %s {3} | base64 --decode", "--preview-window", "down,45%,wrap"]
+        cmd = [picker, "-m", "--ansi", "--delimiter", "\t", "--with-nth", "1",
+               "--preview", "printf %s {2} | base64 --decode", "--preview-window", "down,45%,wrap"]
     else:
-        lines = ["%s\t%s\t%s" % (p["id"], _op_tag(p), _trunc(_summary(p))) for p in props]
+        lines = [_proposal_line(_colorer(False), p, indent="") for p in props]
         cmd = [picker]
     sel = subprocess.run(cmd, input="\n".join(lines) + "\n", capture_output=True, text=True)
     return [i for ln in sel.stdout.splitlines() if (i := _line_id(ln))]
+
+def _bulk_ids(mode, findings, safe):
+    """Ids for the non-stdin modes -- every candidate ('all') or an interactive pick.  Returns
+    [] when nothing is offered or chosen, or None if no picker is installed."""
+    cands = _candidates(findings, safe)
+    if not cands:
+        return []
+    return [p["id"] for p in cands] if mode == "all" else _pick(cands, findings)
 
 def _apply_ids(text, props, ids):
     """Apply the proposals named by `ids`. Returns (new_text, applied, missing). If a
@@ -921,22 +934,21 @@ def cmd_apply(con, entries, text, short, mode, safe, bib, dry_run, color, select
         sup = {p["id"] for p in props if p.get("suppressed")}
         for i in ids:
             if i in sup:
-                print(c("33", "• overriding ignore for %s" % i), file=log)
+                print(c.yellow("• overriding ignore for %s" % i), file=log)
     else:
-        cands = _candidates(findings, safe)
-        if not cands:
-            print(c("90", "nothing to apply"), file=log)
-            return 0
-        ids = [p["id"] for p in cands] if mode == "all" else _pick(cands, findings)
+        ids = _bulk_ids(mode, findings, safe)
         if ids is None:                          # no picker installed
             return 1
+        if not ids:
+            print(c.dim("nothing to apply"), file=log)
+            return 0
     new_text, applied, missing = _apply_ids(text, props, ids)
     for p in applied:
-        print(c("32", "✓ %s" % p["id"]), file=log)
+        print(c.green("✓ %s" % p["id"]), file=log)
     for m in missing:
-        print(c("33", "• no such proposal, skipped: %s" % m), file=log)
+        print(c.yellow("• no such proposal, skipped: %s" % m), file=log)
     if not applied:
-        print(c("90", "nothing applied"), file=log)
+        print(c.dim("nothing applied"), file=log)
     _write_or_echo(new_text, applied, bib, dry_run)
     return 0
 
@@ -954,28 +966,27 @@ def cmd_mute(con, entries, text, short, mode, safe, bib, dry_run, selectors, col
             if i in known:
                 ids.append(i)
             else:
-                print(c("33", "• no such proposal, skipped: %s" % i), file=log)
+                print(c.yellow("• no such proposal, skipped: %s" % i), file=log)
     else:
-        cands = _candidates(findings, safe)
-        if not cands:
-            print(c("90", "nothing to mute"), file=log)
-            return 0
-        ids = [p["id"] for p in cands] if mode == "all" else _pick(cands, findings)
+        ids = _bulk_ids(mode, findings, safe)
         if ids is None:                          # no picker installed
             return 1
+        if not ids:
+            print(c.dim("nothing to mute"), file=log)
+            return 0
     have = {s["sel"] for s in parse_ignores(text)[0]}              # dedup against the block
     add = [i for i in dict.fromkeys(ids) if i not in have]        # unique, order-preserving
     if not add:
-        print(c("90", "nothing to mute"), file=log)
+        print(c.dim("nothing to mute"), file=log)
         return 0
     for s in add:
-        print(c("32", "muted %s" % s), file=log)
+        print(c.green("muted %s" % s), file=log)
     _write_or_echo(_write_ignores(text, add), add, bib, dry_run)
     return 0
 
 # --- main ---------------------------------------------------------------------
 
-# finding status -> ANSI colour for the leading dot (severity at a glance).
+# finding status -> ANSI color for the leading dot (severity at a glance).
 STYLE = dict(ok="32", mismatch="31", review="33", upgrade="35",
              incomplete="36", fuzzy="90", unknown="90")
 
@@ -987,16 +998,16 @@ def _proposal_line(c, p, dim=False, indent="  "):
     if dim:
         sym, col = "·", "90"
     head = "%s%s %s %s" % (indent, c(col + ";1", sym), c(col, "%-4s" % op),
-                           c("90" if dim else "1", "%-10s" % p["field"]))
-    note = "  " + c("90" if dim else "33", _trunc(p["note"], 48)) if p["note"] else ""
-    tail = c("90", ("[ignored] " if dim else "") + p["id"])
+                           (c.dim if dim else c.bold)("%-10s" % p["field"]))
+    note = "  " + (c.dim if dim else c.yellow)(_trunc(p["note"], 48)) if p["note"] else ""
+    tail = c.dim(("[ignored] " if dim else "") + p["id"])
     if p["op"] == "replace":
         return "%s%s  %s" % (head, note, tail)
     if p["op"] == "add":
-        return "%s %s  %s" % (head, c("90" if dim else "32", _trunc(p["dblp"], 64)), tail)
+        return "%s %s  %s" % (head, (c.dim if dim else c.green)(_trunc(p["dblp"], 64)), tail)
     return ("%s %s %s %s%s  %s"       # edit: before -> after (truncated; full text via --show)
-            % (head, c("90" if dim else "31", _trunc(p["bib"], 32)), c("90", "→"),
-               c("90" if dim else "32", _trunc(p["dblp"], 48)), note, tail))
+            % (head, (c.dim if dim else c.red)(_trunc(p["bib"], 32)), c.dim("→"),
+               (c.dim if dim else c.green)(_trunc(p["dblp"], 48)), note, tail))
 
 def report(findings, selectors, counts, color, verbose, show_suppressed):
     c = _colorer(color)
@@ -1008,7 +1019,7 @@ def report(findings, selectors, counts, color, verbose, show_suppressed):
         hidden = supp or f.get("nag_suppressed")
         if not vis and not nag_live and not (show_suppressed and hidden) and not (verbose and eff == "ok"):
             continue                               # nothing left to show for this entry
-        print("%s %s  %s" % (c(STYLE[eff], "●"), c("1", f["title"]), c("90", f["key"])))
+        print("%s %s  %s" % (c(STYLE[eff], "●"), c.bold(f["title"]), c.dim(f["key"])))
         for p in vis:
             print(_proposal_line(c, p))
         if show_suppressed:
@@ -1017,22 +1028,22 @@ def report(findings, selectors, counts, color, verbose, show_suppressed):
         if nag_live or (show_suppressed and f.get("nag_suppressed")):
             for cand in f.get("candidates", []):
                 print("  %s %s %-8s %s"
-                      % (c("90", "~"), cand["year"], cand["venue"], cand["title"]))
-            tag = "" if nag_live else c("90", " [ignored]")
-            print("  %s%s" % (c("90", "(no exact match — may be out of DB scope; check manually)"), tag))
+                      % (c.dim("~"), cand["year"], cand["venue"], cand["title"]))
+            tag = "" if nag_live else c.dim(" [ignored]")
+            print("  %s%s" % (c.dim("(no exact match — may be out of DB scope; check manually)"), tag))
     for s in selectors:                            # stale ignores (unused-noqa equivalent)
         if s["count"] == 0:
-            print(c("33", "ignore: matched nothing (stale): %s" % s["sel"]))
+            print(c.yellow("ignore: matched nothing (stale): %s" % s["sel"]))
     if show_suppressed:
         for s in selectors:
             if s["count"]:
-                print(c("90", "ignore: %s → %d" % (s["sel"], s["count"])))
+                print(c.dim("ignore: %s → %d" % (s["sel"], s["count"])))
     parts = [("%d %s" % (counts[k], k)) for k in
              ("ok", "mismatch", "review", "upgrade", "incomplete", "fuzzy", "unknown", "suppressed")
              if counts[k]]
-    print("\n%s %s" % (c("1", "summary:"), ", ".join(parts) or "nothing to check"))
+    print("\n%s %s" % (c.bold("summary:"), ", ".join(parts) or "nothing to check"))
     if any(counts[k] for k in ("mismatch", "review", "incomplete", "upgrade")):
-        print(c("90", "  apply: dblpbib BIB --apply   ·   silence: dblpbib BIB --mute"))
+        print(c.dim("  apply: dblpbib BIB --apply   ·   silence: dblpbib BIB --mute"))
 
 def main():
     ap = argparse.ArgumentParser(description="Check/fix a .bib file against dblp.db")
@@ -1076,13 +1087,13 @@ def main():
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="also list entries that are OK (hidden by default)")
     ap.add_argument("--color", choices=("auto", "always", "never"), default="auto",
-                    help="when to colour output: 'auto' (default; only on a tty), 'always' "
+                    help="when to color output: 'auto' (default; only on a tty), 'always' "
                          "(e.g. `--oneline --color=always | fzf --ansi`), or 'never'")
     ap.add_argument("--no-color", action="store_const", const="never", dest="color",
                     help="alias for --color=never")
     args = ap.parse_args()
 
-    # auto colours on a tty (and the --show preview pane); NO_COLOR / never force it off.
+    # auto colors on a tty (and the --show preview pane); NO_COLOR / never force it off.
     if args.color == "never" or "NO_COLOR" in os.environ:
         color = False
     elif args.color == "always":

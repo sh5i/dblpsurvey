@@ -44,7 +44,7 @@ def build_db(path):
                authors="Carol Lee 0001, Dan Park", title="Static Analysis for Concurrency Bugs",
                journal="IEEE Trans. Software Eng.", volume="47", number="3", pages="200-220",
                doi="https://doi.org/10.1/tse21", ee="https://doi.org/10.1/tse21")
-    # an arXiv preprint and its published sibling (same normalised title) for upgrade tests
+    # an arXiv preprint and its published sibling (same normalized title) for upgrade tests
     _ins_entry(con, key="journals/corr/abs-2001-00001", type="article", venue="corr", year=2020,
                authors="Eve Adams", title="Neural Methods for Program Repair",
                journal="CoRR", volume="abs/2001.00001", ee="https://arxiv.org/abs/2001.00001")
@@ -107,7 +107,7 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(bc._line_id("  + add  doi    10.1016/j.jss.x  Bosu2014:doi"), "Bosu2014:doi")
         self.assertEqual(bc._line_id("  » repl @entry  now published  m:@"), "m:@")
         self.assertEqual(bc._line_id("  \x1b[90m~\x1b[0m edit year x Bosu2014:year"),
-                         "Bosu2014:year")            # ANSI colour stripped
+                         "Bosu2014:year")            # ANSI color stripped
         # header / summary / stale-ignore lines carry no applicable id
         self.assertIsNone(bc._line_id("● Some Title: A Survey  Bosu2014"))
         self.assertIsNone(bc._line_id("summary: 1 mismatch, 2 suppressed"))
