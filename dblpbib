@@ -116,30 +116,25 @@ def surnames(s):
             out.add(f)
     return out
 
-# --- a small offset-tracking .bib parser --------------------------------------
-# We keep byte offsets so edits can patch individual field values surgically
-# without re-serializing (and thus without disturbing untouched fields/layout).
+# --- a small .bib parser (for matching against the DB) ------------------------
+# Reads each entry's type, key and field values.  Edits are delegated to bibgraft,
+# which re-resolves positions from (key, field), so no byte offsets are tracked here.
 
 class Field:
-    __slots__ = ("name", "value", "start", "end")  # start/end span the value token
+    __slots__ = ("name", "value")
 
-    def __init__(self, name, value, start, end):
-        self.name, self.value, self.start, self.end = name, value, start, end
+    def __init__(self, name, value):
+        self.name, self.value = name, value
 
 class Entry:
-    def __init__(self, etype, key, fields, start, body_close):
+    def __init__(self, etype, key, fields):
         self.type = etype          # 'article' | 'inproceedings' | 'misc'
         self.key = key
         self.fields = fields       # dict name -> Field
-        self.start = start         # offset of the leading '@'
-        self.body_close = body_close  # offset of the entry's closing '}'
 
     def get(self, name):
         f = self.fields.get(name)
         return f.value if f else ""
-
-    def last_field_end(self):
-        return max((f.end for f in self.fields.values()), default=self.body_close)
 
 def _match_brace(text, i):
     depth = 0
@@ -154,16 +149,15 @@ def _match_brace(text, i):
     return len(text) - 1
 
 def parse_bib(text):
-    """Parse @article/@inproceedings/@misc entries, keeping byte offsets for surgical
-    edits. Assumes brace- or quote-delimited values (the common generated-.bib
-    form); @string macros and value concatenation ('a # b') are not interpreted."""
+    """Parse @article/@inproceedings/@misc entries (type, key, field values). Assumes
+    brace- or quote-delimited values (the common generated-.bib form); @string macros and
+    value concatenation ('a # b') are not interpreted."""
     entries = []
     for m in re.finditer(r"@(\w+)\s*\{", text):
         etype = m.group(1).lower()
         open_brace = m.end() - 1
         close_brace = _match_brace(text, open_brace)
         body = text[m.end():close_brace]
-        base = m.end()
         comma = body.find(",")
         if comma < 0:
             continue
@@ -182,24 +176,24 @@ def parse_bib(text):
             c = body[j]
             if c == "{":
                 k = _match_brace(body, j)
-                value, vs, ve = body[j + 1:k], j, k + 1
+                value, ve = body[j + 1:k], k + 1
             elif c == '"':
                 k = body.find('"', j + 1)
                 if k < 0:
                     break
-                value, vs, ve = body[j + 1:k], j, k + 1
+                value, ve = body[j + 1:k], k + 1
             else:
                 k = j
                 while k < n and body[k] not in ",}":
                     k += 1
-                value, vs, ve = body[j:k].strip(), j, j + len(body[j:k].rstrip())
-            fields[name] = Field(name, value.strip(), base + vs, base + ve)
+                value, ve = body[j:k].strip(), k
+            fields[name] = Field(name, value.strip())
             i = ve
             nxt = body.find(",", i)
             i = nxt + 1 if nxt >= 0 else n
         # @misc is kept so arXiv preprints can be checked for a published version
         if etype in ("article", "inproceedings", "misc"):
-            entries.append(Entry(etype, key, fields, m.start(), close_brace))
+            entries.append(Entry(etype, key, fields))
     return entries
 
 # --- database lookup ----------------------------------------------------------
@@ -477,13 +471,16 @@ def compare(con, entry, row, short=False):
 
     return edits, reviews, adds
 
-# --- edit application (surgical, reverse-order) -------------------------------
+# --- edit application (delegated to bibgraft) ---------------------------------
 
-def apply_edits(text, edits):
-    """edits: list of (start, end, replacement). end==start means insertion."""
-    for start, end, repl in sorted(edits, key=lambda e: e[0], reverse=True):
-        text = text[:start] + repl + text[end:]
-    return text
+def _bibgraft():
+    """Import bibgraft lazily: only the apply path uses it, and it (via bibspan) pulls in
+    the vendored bibtexparser submodule -- so reporting/checking stays dependency-light and
+    only `--apply`/`--mute` writes need the submodule present."""
+    if _HERE not in sys.path:
+        sys.path.insert(0, _HERE)
+    import bibgraft
+    return bibgraft
 
 # --- add mode -----------------------------------------------------------------
 
@@ -553,18 +550,13 @@ def match_record(con, e):
         pub, _ = lookup_exact(con, pre[0]["title"])
     return pub, pre, matched_by
 
-def _edit_for(e, field, value):
-    """Surgical edit that sets `field` to `value`: replace the value span if the field is
-    present, else insert a new field after the last one."""
-    if field in e.fields:
-        f = e.fields[field]
-        return (f.start, f.end, "{%s}" % value)
-    pos = e.last_field_end()
-    return (pos, pos, ",\n  %s = {%s}" % (field, value))
-
 def _proposal(e, op, field, bib, dblp, note="", review=False):
+    """A field-level proposal. The change itself is a bibgraft `set` op -- it replaces an
+    existing value or inserts a missing field, in the file's own conventions; bibgraft
+    re-resolves the position from (key, field) at apply time."""
     return dict(id="%s:%s" % (e.key, field), op=op, review=review, field=field,
-                bib=bib, dblp=dblp, note=note, edit=_edit_for(e, field, dblp))
+                bib=bib, dblp=dblp, note=note,
+                op_bib={"op": "set", "key": e.key, "field": field, "value": dblp})
 
 def process_entry(con, e, short=False):
     """Classify one .bib entry against DBLP. Returns a finding dict, or None to skip.
@@ -572,8 +564,8 @@ def process_entry(con, e, short=False):
     (`citekey:field`, or `citekey:@`), an operation `op` (add a missing field / edit an
     existing one / replace the whole entry) and a `review` flag (True = the author should
     judge it; False = DBLP is authoritative, so it is safe to apply), plus before/after
-    values and a surgical edit. `status` summarises the finding; an unmatched one carries
-    fuzzy `candidates`."""
+    values and the bibgraft op that performs it. `status` summarises the finding; an
+    unmatched one carries fuzzy `candidates`."""
     if e.type == "misc" and not is_arxiv(e):
         return None                            # non-paper @misc (datasets, manuals): skip
     title = e.get("title")
@@ -597,7 +589,8 @@ def process_entry(con, e, short=False):
                     bib="@" + e.type,
                     dblp="%s %s%s (%s)" % (vshort, published["year"], tag, published["key"]),
                     note="now published — replace the whole entry",
-                    replacement=repl, edit=(e.start, e.body_close + 1, repl))
+                    replacement=repl,
+                    op_bib={"op": "replace-entry", "key": e.key, "value": repl})
         return dict(key=e.key, type=e.type, status="upgrade", title=title,
                     matched_by=matched_by, proposals=[prop], candidates=[])
 
@@ -881,15 +874,19 @@ def _bulk_ids(mode, findings, safe):
     return [p["id"] for p in cands] if mode == "all" else _pick(cands, findings)
 
 def _apply_ids(text, props, ids):
-    """Apply the proposals named by `ids`. Returns (new_text, applied, missing). If a
-    whole-entry upgrade is chosen, its field-level siblings are dropped (they'd conflict)."""
+    """Apply the proposals named by `ids` via bibgraft (it re-resolves positions from
+    key/field and renders changes in the file's own conventions). Returns (new_text,
+    applied, missing). If a whole-entry upgrade is chosen, its field-level siblings are
+    dropped (they'd conflict)."""
     pmap = {p["id"]: p for p in props}
     chosen = [pmap[i] for i in ids if i in pmap]
     missing = [i for i in ids if i not in pmap]
     replaced = {p["id"].rsplit(":", 1)[0] for p in chosen if p["op"] == "replace"}
     chosen = [p for p in chosen
               if p["op"] == "replace" or p["id"].rsplit(":", 1)[0] not in replaced]
-    return apply_edits(text, [p["edit"] for p in chosen]), chosen, missing
+    new_text, done, _ = _bibgraft().apply(text, [p["op_bib"] for p in chosen])
+    applied = {id(o) for o in done}                  # bibgraft returns our op dicts verbatim
+    return new_text, [p for p in chosen if id(p["op_bib"]) in applied], missing
 
 def cmd_oneline(findings, safe, color):
     """Flat one-proposal-per-line view: the same proposal lines as the report (op, field,

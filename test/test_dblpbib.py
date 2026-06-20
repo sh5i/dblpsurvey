@@ -90,13 +90,16 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(bc.gen_citekey(row, set()), "Hayashi2024")
         self.assertEqual(bc.gen_citekey(row, {"Hayashi2024"}), "Hayashi2024a")
 
-    def test_parse_and_apply_edits(self):
+    def test_parse_and_apply_via_bibgraft(self):
         text = "@article{k,\n  title = {Hello},\n  year = {2019}\n}\n"
         e = bc.parse_bib(text)[0]
         self.assertEqual((e.type, e.key, e.get("year")), ("article", "k", "2019"))
-        fld = e.fields["year"]
-        self.assertEqual(text[fld.start:fld.end], "{2019}")     # offsets span the value token
-        self.assertIn("year = {2021}", bc.apply_edits(text, [(fld.start, fld.end, "{2021}")]))
+        # a proposal carries a bibgraft op; _apply_ids edits only that value, in file style
+        props = [bc._proposal(e, "edit", "year", "2019", "2021")]
+        new, applied, missing = bc._apply_ids(text, props, ["k:year"])
+        self.assertEqual((missing, [p["id"] for p in applied]), ([], ["k:year"]))
+        self.assertIn("year = {2021}", new)
+        self.assertIn("title = {Hello}", new)                   # untouched field intact
 
     def test_line_id_oneline_and_report(self):
         # id-first form (e.g. a hand-typed id): first token wins, ignore a colon-y suffix
