@@ -207,6 +207,13 @@ def _majority(xs):
     return collections.Counter(xs).most_common(1)[0][0] if xs else None
 
 
+def _majority_or(xs, default):
+    """The most common element, or `default` only when there is NO data -- so an empty list
+    (None) is distinguished from a legitimately-empty inferred value like '' (no-space `=`)."""
+    m = _majority(xs)
+    return default if m is None else m
+
+
 def _case_of(names):
     names = [n for n in names if n]
     if not names:
@@ -242,10 +249,10 @@ def infer(entries, text):
                 before[(ns[x], ns[y])] += 1
     return dict(
         newline="\r\n" if "\r\n" in text else "\n",
-        delim=_majority([f.delim for f in allf if f.delim in ("{", '"')]) or "{",
-        indent=_majority([f.indent for f in nlf]) or "  ",
-        pre_eq=_majority([f.pre_eq for f in allf]) or " ",
-        post_eq=_majority([f.post_eq for f in allf]) or " ",
+        delim=_majority_or([f.delim for f in allf if f.delim in ("{", '"')], "{"),
+        indent=_majority_or([f.indent for f in nlf], "  "),
+        pre_eq=_majority_or([f.pre_eq for f in allf], " "),
+        post_eq=_majority_or([f.post_eq for f in allf], " "),
         name_case=_case_of([f.name for f in allf]),
         type_case=_case_of([e.type for e in entries]),
         trailing=bool(_majority(last_commas)) if last_commas else False,
@@ -263,7 +270,7 @@ def _entry_style(e, fs):
         return st
     nlf = [f for f in fns if f.has_nl]
     if nlf:
-        st["indent"] = _majority([f.indent for f in nlf]) or fs["indent"]
+        st["indent"] = _majority_or([f.indent for f in nlf], fs["indent"])
         if nlf[0].lead.count("\r\n"):
             st["newline"] = "\r\n"
     dl = _majority([f.delim for f in fns if f.delim in ("{", '"')])
@@ -276,11 +283,11 @@ def _entry_style(e, fs):
     widths = {len(f.indent) + len(f.name) for f in nlf}
     if nlf and len(set(cols)) == 1 and (len(widths) > 1 or max(len(f.pre_eq) for f in nlf) > 1):
         st["aligned"], st["eq_col"] = True, cols[0]
-        st["post_eq"] = _majority([f.post_eq for f in nlf]) or fs["post_eq"]
+        st["post_eq"] = _majority_or([f.post_eq for f in nlf], fs["post_eq"])
     else:
         st["aligned"] = False
-        st["pre_eq"] = _majority([f.pre_eq for f in fns]) or fs["pre_eq"]
-        st["post_eq"] = _majority([f.post_eq for f in fns]) or fs["post_eq"]
+        st["pre_eq"] = _majority_or([f.pre_eq for f in fns], fs["pre_eq"])
+        st["post_eq"] = _majority_or([f.post_eq for f in fns], fs["post_eq"])
     st["trailing"] = fns[-1].comma_pos is not None
     ints = [f for f in fns if INT_RE.fullmatch(f.value or "")]
     if ints:

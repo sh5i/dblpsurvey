@@ -163,6 +163,16 @@ class Conventions(unittest.TestCase):
         out, _, _ = bg.apply(src, [{"op": "set", "key": "A", "field": "volume", "value": "7"}])
         self.assertIn("volume = 7", out)                            # new int -> bare too
 
+    def test_no_space_around_eq_preserved(self):
+        # file uses `key={...}` (empty pre/post around '='); a new field must too -- the
+        # empty spacing must not collapse to the " = " default (_majority_or vs `... or " "`).
+        src = "@article{A,\n  author={X},\n  year={2020}\n}\n"
+        fs = bg.infer(bg.parse(src), src)
+        self.assertEqual((fs["pre_eq"], fs["post_eq"]), ("", ""))
+        out, _, _ = bg.apply(src, [{"op": "set", "key": "A", "field": "title", "value": "T"}])
+        self.assertIn("  title={T}", out)
+        self.assertNotIn("title = {T}", out)
+
     def test_quote_fallback_to_braces(self):
         # value unsafe for the entry's quote delimiter -> fall back to braces.
         out, _, _ = bg.apply(MIXED, [{"op": "set", "key": "B",
