@@ -52,10 +52,10 @@ eq "conf ordinal"               "$(q "SELECT ordinal FROM proceedings WHERE key=
 eq "workshop kind/ordinal"      "$(q "SELECT kind||'/'||ordinal FROM proceedings WHERE key='journals/corr/absWS25'")" "workshop/5"
 eq "journal join"               "$(q "SELECT j.full_name FROM entries e JOIN journals j ON j.abbrev=e.journal WHERE e.key='journals/tse/MuellerA14'")" "IEEE Transactions on Software Engineering"
 
-# 4. pass-through ("*"): exercise the shipped config-all.yaml; both extractors agree, and
+# 4. pass-through ("*"): exercise the shipped config/sample-all.yaml; both extractors agree, and
 #    the otherwise-filtered venue (journals/xx, absent from test/config.yaml) now survives.
-$RB --format=sql --config=config-all.yaml --dtd="$DTD" < "$FIX" | sort > "$TMP/rb.all"
-$GO --format=sql --config=config-all.yaml --dtd="$DTD" < "$FIX" | sort > "$TMP/go.all"
+$RB --format=sql --config=config/sample-all.yaml --dtd="$DTD" < "$FIX" | sort > "$TMP/rb.all"
+$GO --format=sql --config=config/sample-all.yaml --dtd="$DTD" < "$FIX" | sort > "$TMP/go.all"
 cmp -s "$TMP/rb.all" "$TMP/go.all" || { diff "$TMP/rb.all" "$TMP/go.all"; fail "wildcard: ruby != go"; }
 grep -q "journals/xx/Unwanted10" "$TMP/rb.all" || fail "wildcard: off-list venue not passed through"
 

@@ -33,21 +33,21 @@ Each line of the searchable database is one entry:
 ```
 $ git clone https://github.com/sh5i/dblpsurvey.git
 $ cd dblpsurvey
-$ cp config-se.yaml config.yaml
-# (Edit config.yaml as you like)
+$ cp config/sample-se.yaml config/default.yaml
+# (Edit config/default.yaml as you like)
 $ make
 $ sudo make install   # this just does: ln -s $(realpath ./bin/dblpsurvey) /usr/local/bin/
 ```
-The `make` first downloads the DBLP XML database file from https://dblp.org/, then filters it by the preference in `config.yaml` and converts the selected entries to a simple text in a single pass, each line representing a DBLP entry (`<article>` or `<inproceedings>`).
+The `make` first downloads the DBLP XML database file from https://dblp.org/, then filters it by the preference in `config/default.yaml` and converts the selected entries to a simple text in a single pass, each line representing a DBLP entry (`<article>` or `<inproceedings>`).
 Such a text file is suitable for the grep-based search.
 `make` also builds `dblp.db`, a SQLite database for structured and full-text queries (see [Database](#database-dblpdb)). Generated files are git-ignored: the data (XML download, `dblp.txt.gz`, `dblp.db`) lives under `data/`, and the compiled extractor (`dblp2text`) under `build/`.
 
 The two extractors are interchangeable: `src/dblp_text.go` (default) and `src/dblp_text.rb` (`make EXTRACTOR=ruby`, no Go toolchain needed). `make test` checks that they produce identical output.
 
 ## Configuration
-`config.yaml` selects what to extract. Two ready-made presets are shipped — copy one and edit:
-- `config-se.yaml` — a curated software-engineering set of journals and conferences (well commented).
-- `config-all.yaml` — no filtering (`"*"` matches every venue; the whole of DBLP, huge and slow — see the warning inside).
+`config/default.yaml` selects what to extract. Two ready-made presets are shipped under `config/` — copy one and edit:
+- `config/sample-se.yaml` — a curated software-engineering set of journals and conferences (well commented).
+- `config/sample-all.yaml` — no filtering (`"*"` matches every venue; the whole of DBLP, huge and slow — see the warning inside).
 
 ```yaml
 journals:
@@ -95,7 +95,7 @@ Its core is one flat table `entries` plus a full-text table `fts`, with two smal
 
 `fts(key, title, authors)` is an FTS5 index for ranked fuzzy search.
 
-DBLP's `<article>` only stores an ISO-4 abbreviation (e.g., `IEEE Trans. Software Eng.`), never the full journal title, so `journals(abbrev, full_name)` is a hand-curated offline map (no network), populated from `journal_names:` in `config.yaml` — join it on `entries.journal = journals.abbrev`.
+DBLP's `<article>` only stores an ISO-4 abbreviation (e.g., `IEEE Trans. Software Eng.`), never the full journal title, so `journals(abbrev, full_name)` is a hand-curated offline map (no network), populated from `journal_names:` in `config/default.yaml` — join it on `entries.journal = journals.abbrev`.
 Likewise the `proceedings` table carries derived `conf_name`/`canonical` names for conferences, joined on `entries.crossref = proceedings.key`.
 
 ```sql

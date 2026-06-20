@@ -54,17 +54,17 @@ test: build/dblp2text vendor/bibtexparser/bibtexparser/splitter.py
 vendor/bibtexparser/bibtexparser/splitter.py:
 	git submodule update --init vendor/bibtexparser
 
-data/dblp.txt.gz: data/dblp.xml.gz data/dblp.dtd config.yaml $(EXTRACT_DEP) | data
+data/dblp.txt.gz: data/dblp.xml.gz data/dblp.dtd config/default.yaml $(EXTRACT_DEP) | data
 	gunzip -c data/dblp.xml.gz \
-	  | $(EXTRACT) --color --config=config.yaml --dtd=data/dblp.dtd \
+	  | $(EXTRACT) --color --config=config/default.yaml --dtd=data/dblp.dtd \
 	  | gzip -c > $@
 
 # SQLite database for structured / agent queries (needs the sqlite3 CLI with FTS5).
 # Final step derives clean conference names into proceedings.{kind,ordinal,conf_name,...}
 # (Ruby post-pass, no LLM/network; the raw proceedings.title is left untouched).
-data/dblp.db: data/dblp.xml.gz data/dblp.dtd config.yaml src/schema.sql src/dblp_confname.rb $(EXTRACT_DEP) | data
+data/dblp.db: data/dblp.xml.gz data/dblp.dtd config/default.yaml src/schema.sql src/dblp_confname.rb $(EXTRACT_DEP) | data
 	rm -f $@
 	sqlite3 $@ < src/schema.sql
-	gunzip -c data/dblp.xml.gz | $(EXTRACT) --format=sql --config=config.yaml --dtd=data/dblp.dtd | sqlite3 $@
+	gunzip -c data/dblp.xml.gz | $(EXTRACT) --format=sql --config=config/default.yaml --dtd=data/dblp.dtd | sqlite3 $@
 	sqlite3 $@ "INSERT INTO fts(key,title,authors) SELECT key,title,authors FROM entries;"
 	ruby src/dblp_confname.rb $@ | sqlite3 $@

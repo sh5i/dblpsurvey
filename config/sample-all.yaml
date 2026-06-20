@@ -1,6 +1,6 @@
 # Pass-through config sample: Every journals and proceedings survives.
 # WARNING: the resulting dblp.txt.gz and dblp.db are very large and slow to build.
-# To use: cp config-all.yaml config.yaml && make
+# To use: cp config/sample-all.yaml config/default.yaml && make
 journals:
   - "*"
 conferences:
