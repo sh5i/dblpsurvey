@@ -86,6 +86,21 @@ class ParseInfer(unittest.TestCase):
         self.assertIn("--space=4", delta)
 
 
+@unittest.skipUnless(os.path.isdir(bg._VENDORED),
+                     "vendored bibtexparser submodule not checked out")
+class VendoredBibtexparser(unittest.TestCase):
+    def test_core_loads_and_splits_without_middleware(self):
+        bp = bg.bibtexparser_core()
+        lib = bp.splitter.Splitter(BRACE).split()
+        self.assertEqual([(e.entry_type, e.key) for e in lib.entries],
+                         [("article", "Yu2021"), ("inproceedings", "Smith2020")])
+        # core stays span-preserving: enclosing delimiters are NOT stripped
+        self.assertEqual(lib.entries[0].fields_dict["year"].value, "{2021}")
+        # the whole point of the stub: no __init__ -> no middleware -> no pylatexenc
+        self.assertNotIn("bibtexparser.middlewares", sys.modules)
+        self.assertNotIn("pylatexenc", sys.modules)
+
+
 class CoreOps(unittest.TestCase):
     def test_roundtrip_no_ops_is_byte_identical(self):
         out, applied, skipped = bg.apply(BRACE, [])

@@ -35,7 +35,8 @@ Library API:
   style = bibgraft.infer(doc, text)   # file-wide conventions + field-order data
   new, applied, skipped = bibgraft.apply(text, ops)
 
-Python standard library only.
+Standard library only, except an optional vendored bibtexparser core reached via
+`bibtexparser_core()` (a git submodule under vendor/; no system install needed).
 """
 
 import argparse
@@ -44,6 +45,40 @@ import json
 import os
 import re
 import sys
+
+# --- vendored bibtexparser (optional) -----------------------------------------
+
+_VENDORED = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "vendor", "bibtexparser", "bibtexparser")
+
+
+def bibtexparser_core():
+    """Import bibtexparser's *core* (splitter/model/library/exceptions) from the
+    vendored submodule WITHOUT running its __init__ -- which pulls in the middleware
+    stack and a pylatexenc dependency we neither vendor nor want.  We register a stub
+    `bibtexparser` package so the core modules' relative imports resolve, then load
+    just those four stdlib-only modules from vendor/.  Returns the stub package (use
+    `.splitter.Splitter`, `.library.Library`, `.model`); raises ImportError when the
+    submodule is not checked out."""
+    import importlib.util
+    import types
+    if "bibtexparser" in sys.modules:
+        return sys.modules["bibtexparser"]
+    if not os.path.isdir(_VENDORED):
+        raise ImportError("vendored bibtexparser missing -- run "
+                          "`git submodule update --init vendor/bibtexparser`")
+    pkg = types.ModuleType("bibtexparser")
+    pkg.__path__ = [_VENDORED]            # mark it a package so `.model` etc. resolve
+    sys.modules["bibtexparser"] = pkg
+    for name in ("exceptions", "model", "library", "splitter"):   # dependency order
+        spec = importlib.util.spec_from_file_location(
+            "bibtexparser." + name, os.path.join(_VENDORED, name + ".py"))
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["bibtexparser." + name] = mod   # register before exec for cycles
+        spec.loader.exec_module(mod)
+        setattr(pkg, name, mod)
+    return pkg
+
 
 # --- parsing ------------------------------------------------------------------
 
