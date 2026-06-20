@@ -61,6 +61,30 @@ class ParseInfer(unittest.TestCase):
         self.assertEqual(st["name_case"], "lower")
         self.assertGreater(st["before"][("author", "year")], 0)
 
+    def test_style_flags_debug(self):
+        flags = bg._style_flags(bg.infer(bg.parse(BRACE), BRACE))
+        for want in ("--curly", "--space=2", "--no-align", "--no-trailing-commas",
+                     "--no-numeric", "--lowercase", "--blank-lines=1"):
+            self.assertIn(want, flags)
+        order = next(f for f in flags if f.startswith("--sort-fields="))
+        self.assertTrue(order.startswith("--sort-fields=author,") and order.endswith(",year"))
+
+    def test_style_flags_quote_bare_tab(self):
+        text = '@article{A,\n\tauthor = "X",\n\tyear = 2020\n}\n'
+        flags = bg._style_flags(bg.infer(bg.parse(text), text))
+        for want in ("--no-curly", "--tab", "--numeric"):
+            self.assertIn(want, flags)
+
+    def test_style_flags_entry_local_overrides(self):
+        # file is brace+2-space; entry B overrides locally with quote+4-space
+        es = bg.parse(MIXED)
+        fs = bg.infer(es, MIXED)
+        base = set(bg._style_flags(fs))
+        b = next(e for e in es if e.key == "B")
+        delta = [f for f in bg._style_flags(bg._entry_style(b, fs)) if f not in base]
+        self.assertIn("--no-curly", delta)
+        self.assertIn("--space=4", delta)
+
 
 class CoreOps(unittest.TestCase):
     def test_roundtrip_no_ops_is_byte_identical(self):

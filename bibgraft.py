@@ -26,6 +26,10 @@ part of the contract.  An op that cannot be resolved is warned about and skipped
   bibgraft refs.bib --insert < entries.bib    # import raw entries (add-entry each)
   bibgraft refs.bib --insert --overwrite < x  # ... replacing existing keys
 
+Set BIBGRAFT_DEBUG=1 to print the inferred house style to stderr, as bibtex-tidy-style flags
+(`--curly`, `--space=2`, `--align=14`, `--sort-fields=...`; `--x-*` are bibgraft-only): one
+line for the file, then `style @<key>:` lines for each entry's local overrides.
+
 Library API:
   doc   = bibgraft.parse(text)        # entries with spans + observed formatting
   style = bibgraft.infer(doc, text)   # file-wide conventions + field-order data
@@ -37,6 +41,7 @@ Python standard library only.
 import argparse
 import collections
 import json
+import os
 import re
 import sys
 
@@ -375,6 +380,49 @@ def _render_entry(key, value, fs, warn):
     return "@%s{%s,%s%s%s}" % (typ, key, nl, nl.join(lines), nl)
 
 
+# --- inferred-style debug (set BIBGRAFT_DEBUG=1 to dump it) --------------------
+
+def _inferred_order(fs):
+    """A representative field order derived from the pairwise tallies (for the debug dump)."""
+    names = sorted({x for pair in fs["before"] for x in pair})
+    return [n for n, _ in _order_fields([(n, None) for n in names], fs["before"])]
+
+def _style_flags(fs):
+    """The inferred conventions rendered as bibtex-tidy-style flags (`--x-*` = bibgraft-only).
+    A debugging view of what `infer` decided the file's house style is."""
+    f = ["--curly" if fs["delim"] == "{" else "--no-curly",
+         "--numeric" if fs["bare_numbers"] else "--no-numeric",
+         "--tab" if fs["indent"] == "\t" else "--space=%d" % len(fs["indent"]),
+         "--align=%d" % fs["eq_col"] if fs["aligned"] else "--no-align",
+         "--trailing-commas" if fs["trailing"] else "--no-trailing-commas",
+         "--blank-lines=%d" % fs["blank_lines"] if fs["blank_lines"] else "--no-blank-lines"]
+    if fs["name_case"] == "lower" and fs["type_case"] == "lower":
+        f.append("--lowercase")
+    else:
+        f += ["--x-field-case=%s" % fs["name_case"], "--x-entry-case=%s" % fs["type_case"]]
+    if not fs["aligned"]:
+        f.append("--x-eq=%r" % (fs["pre_eq"] + "=" + fs["post_eq"]))
+    if fs["newline"] == "\r\n":
+        f.append("--x-crlf")
+    order = _inferred_order(fs)
+    if order:
+        f.append("--sort-fields=%s" % ",".join(order))
+    return f
+
+def _debug_style(fs, entries):
+    """With BIBGRAFT_DEBUG set, dump (to stderr) the file-wide style, then each entry's local
+    overrides -- only the flags that differ from the file -- all as bibtex-tidy-style flags."""
+    if not os.environ.get("BIBGRAFT_DEBUG"):
+        return
+    base = _style_flags(fs)
+    sys.stderr.write("bibgraft: style: %s\n" % " ".join(base))
+    baseset = set(base)
+    for e in entries:
+        delta = [f for f in _style_flags(_entry_style(e, fs)) if f not in baseset]
+        if delta:
+            sys.stderr.write("bibgraft: style @%s: %s\n" % (e.key, " ".join(delta)))
+
+
 # --- op resolution (each op -> edits against the ORIGINAL text) ----------------
 
 def _set_edit(e, fs, field, value, warn):
@@ -438,6 +486,7 @@ def apply(text, ops, warn=None):
     warn = warn or (lambda m: None)
     entries = parse(text)
     fs = infer(entries, text)
+    _debug_style(fs, entries)
     by_key = {}
     for e in entries:
         by_key.setdefault(e.key, e)
