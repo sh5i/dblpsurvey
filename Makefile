@@ -48,10 +48,10 @@ build/dblp2text: src/dblp_text.go go.mod | build
 	go build -o $@ ./src
 
 # Verify the Go and Ruby extractors agree and the emitted SQL builds a queryable DB
-# (test/run.sh), then the dblpbib .bib-checker (test/test_dblpbib.py) and the bibgraft
+# (test/test_extract.sh), then the dblpbib .bib-checker (test/test_dblpbib.py) and the bibgraft
 # .bib editor (test/test_bibgraft.py) against fixtures.
 test: build/dblp2text vendor/bibtexparser/bibtexparser/splitter.py
-	@./test/run.sh
+	@./test/test_extract.sh
 	@python3 test/test_dblpbib.py
 	@python3 test/test_bibgraft.py
 
