@@ -1,66 +1,117 @@
 # dblpsurvey
-A quick & fast survey tool that turns the [dblp](https://dblp.org/) database into a grep-friendly text file — and a queryable SQLite database — scoped to the venues you care about.
+
+A grep- and SQL-friendly survey toolkit over the [dblp](https://dblp.org/) bibliography.
+`make` downloads the dblp dump once, filters it to the venues you care about, and builds two databases you work with offline:
+
+- a text database (`data/<profile>.txt.gz`) — one line per paper, for fuzzy search with `fzf`/`peco`/`grep`;
+- a SQLite database (`data/<profile>.db`) — a flat `entries` table plus a full-text index, for structured/full-text queries and for checking a `.bib` against DBLP.
 
 ![](https://i.gyazo.com/3c1e31b89302d81cd1fbdfdf18b3fb89.gif)
 
-## Usage
+## Tools
+
+All CLIs live in `bin/`.
+
+- **`dblpsurvey`** — search and pick papers; copy them to the clipboard, print them as BibTeX, or insert them straight into a `.bib`.
+- **`dblpbib`** — check and fix an existing `.bib` against DBLP, offline: correct author/year/pages/volume, fill missing fields, normalise venue names, swap an arXiv preprint for its published version — `git add -p`-style select-then-apply.
+- **`dblpcite`** — turn DBLP keys into BibTeX entries (the bridge `dblpsurvey -i` uses; also composable on its own).
+
+Behind `dblpsurvey -i` / `dblpbib --apply` sits `bibgraft`, a convention-preserving, minimal-diff `.bib` editor that inserts/edits entries in your file's own layout.
+
+## Prerequisites
+
+- Basic commands: `bash`, `curl`, `gzip`, `gunzip`, `realpath`, `perl`, and `make`
+- to build the text database, either:
+  - [Go](https://go.dev/) — the default, faster extractor (`make`), or
+  - [`ruby`](https://www.ruby-lang.org/) — the reference extractor (`make EXTRACTOR=ruby`)
+- for the SQLite database: the [`sqlite3`](https://sqlite.org/) CLI (with FTS5)
+- for the `.bib` tools (`dblpbib`, `dblpcite`): Python 3 (standard library only). Their insert/apply path also uses a vendored copy of `bibtexparser` — a git submodule, pulled in by the `--recurse-submodules` clone below (or `git submodule update --init`; `make test` fetches it too).
+- for search: [`fzf`](https://github.com/junegunn/fzf), [`peco`](https://github.com/peco/peco), or `grep`
+- (optional) to paste to the clipboard: `pbcopy`, `xsel`, or `putclip`
+
+## Quick Start
+
+```
+$ git clone --recurse-submodules https://github.com/sh5i/dblpsurvey.git
+$ cd dblpsurvey
+$ cp config/sample-se.yaml config/default.yaml    # pick a starting profile, then edit it
+$ make                                            # download + build data/default.{txt.gz,db}
+$ sudo make install            # optional: ln -s $(realpath ./bin/dblpsurvey) /usr/local/bin/
+```
+
+`make` downloads the DBLP XML from <https://dblp.org/>, filters it by `config/default.yaml`, and writes the text and SQLite databases under `data/`.
+The two extractors are interchangeable: `src/dblp_text.go` (default) and `src/dblp_text.rb` (`make EXTRACTOR=ruby`, no Go toolchain needed); `make test` checks they produce identical output.
+
+## Searching — `dblpsurvey`
+
 ```
 $ dblpsurvey [-k] [-d] [-p PROFILE] [-b | -i FILE] [keyword...]
 ```
-Options:
-- `-k`: Remove DBLP keys from the output
-- `-d`: Remove DOI URLs from the output
-- `-p PROFILE`: search the `PROFILE` database (`data/PROFILE.txt.gz`); default `default` (see [Profiles](#profiles))
-- `-b`: print the picked entries as BibTeX (via `dblpcite`, DBLP record → BibTeX)
-- `-i FILE`: insert the picked entries (as BibTeX) into `FILE`, in that file's own conventions (`dblpcite` + `bibgraft`)
-- `keyword`: Used as initial keywords when specified
 
-When running `dblpsurvey`, you can select your favorite lines if you have installed incremental search tools such as `fzf` or `peco`.
-The results are pasted to the clipboard with `pbcopy`.
+- `-k` — strip the DBLP key from each line
+- `-d` — strip the DOI URL from each line
+- `-p PROFILE` — search another profile's text database (default `default`; see [Profiles](#profiles))
+- `-b` — print the picked entries as BibTeX (via `dblpcite`)
+- `-i FILE` — insert the picked entries (as BibTeX) into `FILE`, in that file's own conventions
+- `keyword...` — initial query
 
-Each line of the searchable database is one entry:
+Pick interactively with `fzf` or `peco` (or plain `grep` if neither is installed).
+By default the picks are copied to the clipboard.
+Each line of the text database is one paper:
+
 ```
 (journals/smr/Sae-LimHS18) Natthawute Sae-Lim, Shinpei Hayashi, Motoshi Saeki: "Context-based approach to prioritize code smells for prefactoring", J. Softw. Evol. Process., 30, 6, 2018. https://doi.org/10.1002/smr.1886
 ```
 
-## Prerequisites
-- Basic commands: `bash`, `curl`, `gzip`, `gunzip`, `realpath`, `perl`, and `make`
-- for building the text database, either:
-   - [Go](https://go.dev/) — the default, faster extractor (`make`), or
-   - [`ruby`](https://www.ruby-lang.org/) — the reference extractor (`make EXTRACTOR=ruby`)
-- for the SQLite database (`dblp.db`): the [`sqlite3`](https://sqlite.org/) CLI (with FTS5)
-- for search: [`fzf`](https://github.com/junegunn/fzf), [`peco`](https://github.com/peco/peco), or `grep`
-- (optional) for pasting to the clipboard: `pbcopy`, `xsel`, or `putclip`
+Build a bibliography by inserting picks straight into your `.bib` (the entry is rendered to match the file's indentation, delimiters, and field order):
 
-## Installation
 ```
-$ git clone https://github.com/sh5i/dblpsurvey.git
-$ cd dblpsurvey
-$ cp config/sample-se.yaml config/default.yaml
-# (Edit config/default.yaml as you like)
-$ make
-$ sudo make install   # this just does: ln -s $(realpath ./bin/dblpsurvey) /usr/local/bin/
+$ dblpsurvey -i refs.bib code smells      # pick -> BibTeX -> inserted into refs.bib
+$ dblpsurvey -b code smells               # ... or just print the BibTeX to stdout
 ```
-The `make` first downloads the DBLP XML database file from https://dblp.org/, then filters it by the preference in `config/default.yaml` and converts the selected entries to a simple text in a single pass, each line representing a DBLP entry (`<article>` or `<inproceedings>`).
-Such a text file is suitable for the grep-based search.
-`make` also builds a SQLite database for structured and full-text queries (see [Database](#database-dblpdb)). Generated files are git-ignored: the dataset under `data/` (the shared XML download plus each profile's `data/NAME.{txt.gz,db}`), and the compiled extractor (`dblp2text`) under `build/`.
 
-The two extractors are interchangeable: `src/dblp_text.go` (default) and `src/dblp_text.rb` (`make EXTRACTOR=ruby`, no Go toolchain needed). `make test` checks that they produce identical output.
+## Checking a `.bib` — `dblpbib`
+
+Match each entry in a `.bib` against the SQLite database and propose fixes.
+Nothing is applied until you choose (select-then-apply, like `git add -p`); every proposal has a stable id:
+
+```
+$ dblpbib refs.bib                 # read-only report (safe in CI: a missing DB just skips, exit 0)
+$ dblpbib refs.bib --apply         # pick fixes interactively (fzf/peco), then apply
+$ dblpbib refs.bib --apply=all     # apply every proposal (add --safe for the confident ones only)
+$ dblpbib refs.bib --mute          # silence proposals you've decided to keep, for good
+$ dblpbib --profile ml refs.bib    # check against the 'ml' profile's database
+```
+
+Authoritative fields (author, year, pages, volume, number) are corrected from DBLP; missing fields are filled; venue names and a differing DOI are offered for review; an arXiv entry that has since been published is offered a whole-entry swap.
+Decisions you want to keep can be silenced durably via an in-file `@comment{dblpbib-ignore ...}` block.
+See `dblpbib --help` for the full set of flags.
+
+For a `.bib` entry with a stale year, a truncated author list, an abbreviated journal, and a missing issue number and DOI, the report groups proposals per entry — `~` a confident correction, `?` a change left to your judgement, `+` a missing field — each tagged with a stable `key:field` id:
+
+```
+$ dblpbib refs.bib
+● Context-based approach to prioritize code smells for prefactoring  SaeLim2018
+  ~ edit author     Natthawute Sae-Lim and others → Natthawute Sae-Lim and Shinpei Hayashi and Moto…  SaeLim2018:author
+  ~ edit year       2017 → 2018  SaeLim2018:year
+  ? edit journal    J. Softw. Evol. Process. → Journal of Software: Evolution and Process  expand to the full name  SaeLim2018:journal
+  + add  number     6  SaeLim2018:number
+  + add  doi        10.1002/smr.1886  SaeLim2018:doi
+
+summary: 1 mismatch
+  apply: dblpbib BIB --apply   ·   silence: dblpbib BIB --mute
+```
+
+`dblpbib refs.bib --apply` then lets you pick which of these to accept; the chosen fixes are written back in the file's own layout (via `bibgraft`).
+The report's non-zero exit on a mismatch makes it a usable CI gate.
 
 ## Configuration
-`config/default.yaml` selects what to extract. Two ready-made profiles are shipped under `config/` — copy one and edit:
-- `config/sample-se.yaml` — a curated software-engineering set of journals and conferences (well commented).
-- `config/sample-all.yaml` — no filtering (`"*"` matches every venue; the whole of DBLP, huge and slow — see the warning inside).
 
-### Profiles
-A **profile** `NAME` pairs `config/NAME.yaml` with its own databases `data/NAME.{txt.gz,db}`, so you can keep several surveys side by side (the multi-gigabyte XML download is shared). The setup above used the `default` profile (the one chosen when none is named); add another by copying a config to a new name and building it:
-```
-# write config/ml.yaml (start from a sample, or copy config/default.yaml), then
-$ make PROFILE=ml                            # → data/ml.txt.gz, data/ml.db
-$ dblpsurvey -p ml deep learning             # search the ml text DB
-$ dblpbib --profile ml refs.bib              # check a .bib against the ml DB
-```
-Your profiles (including `default.yaml`) are git-ignored; only the `sample-*.yaml` are tracked.
+`config/<profile>.yaml` selects what to extract.
+Two ready-made samples are shipped under `config/` — copy one to your profile and edit:
+
+- `config/sample-se.yaml` — a curated software engineering (SE) set of journals and conferences (well commented).
+- `config/sample-all.yaml` — no filtering (`"*"` matches every venue; the whole of DBLP, huge and slow — see the warning inside).
 
 ```yaml
 journals:
@@ -86,17 +137,32 @@ year:
 
 A config that selects no venues is rejected; use `"*"` if you really want everything.
 
-## Database (`dblp.db`)
-`make` also builds `build/dblp.db`, a SQLite database for structured and full-text queries — handy for scripts, or for checking/cleaning a `.bib` against DBLP offline.
-Build it alone with `make data/dblp.db` (needs the `sqlite3` CLI with FTS5).
+### Profiles
 
+A **profile** `NAME` pairs `config/NAME.yaml` with its own databases `data/NAME.{txt.gz,db}`, so you can keep several surveys side by side — the multi-gigabyte XML download is shared.
+`default` is used when no profile is named.
+Add another by writing a new config and building it:
+
+```
+# write config/ml.yaml (start from a sample, or copy config/default.yaml), then
+$ make PROFILE=ml                            # -> data/ml.txt.gz, data/ml.db
+$ dblpsurvey -p ml deep learning             # search the ml text database
+$ dblpbib --profile ml refs.bib              # check a .bib against the ml database
+```
+
+Your profiles (including `default.yaml`) are git-ignored; only the `sample-*.yaml` are tracked.
+
+## Database
+
+`make` builds `data/<profile>.db`, a SQLite database for structured and full-text queries — handy for scripts, or for `dblpbib`'s offline checks.
+Build it alone with `make data/<profile>.db` (e.g. `make data/default.db`; needs the `sqlite3` CLI with FTS5).
 Its core is one flat table `entries` plus a full-text table `fts`, with two small lookup tables (`proceedings`, `journals`) you can join for clean venue/journal names:
 
 | column | notes |
 | --- | --- |
 | `key` | DBLP key (primary key), e.g. `conf/icse/SmithB01` |
 | `type` | `article` or `inproceedings` |
-| `venue` | venue id from the key (`tse`, `icse`, …) |
+| `venue` | venue id from the key (`tse`, `icse`, ...) |
 | `year` | integer |
 | `authors` | `Given Family, ...` (same order as DBLP) |
 | `title` | plain text (markup stripped, entities expanded) |
@@ -108,7 +174,7 @@ Its core is one flat table `entries` plus a full-text table `fts`, with two smal
 
 `fts(key, title, authors)` is an FTS5 index for ranked fuzzy search.
 
-DBLP's `<article>` only stores an ISO-4 abbreviation (e.g., `IEEE Trans. Software Eng.`), never the full journal title, so `journals(abbrev, full_name)` is a hand-curated offline map (no network), populated from `journal_names:` in `config/default.yaml` — join it on `entries.journal = journals.abbrev`.
+DBLP's `<article>` only stores an ISO-4 abbreviation (e.g. `IEEE Trans. Software Eng.`), never the full journal title, so `journals(abbrev, full_name)` is a hand-curated offline map (no network), populated from `journal_names:` in your profile's config — join it on `entries.journal = journals.abbrev`.
 Likewise the `proceedings` table carries derived `conf_name`/`canonical` names for conferences, joined on `entries.crossref = proceedings.key`.
 
 ```sql
