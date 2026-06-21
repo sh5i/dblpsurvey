@@ -20,7 +20,7 @@ Behind `dblpsurvey -i` / `dblplint --apply` sits `bibgraft`, a convention-preser
 
 ## Prerequisites
 
-- Basic commands: `bash`, `curl`, `gzip`, `gunzip`, `realpath`, `perl`, and `make`
+- Basic commands: `bash`, `curl`, `gzip`, `gunzip`, `realpath`, `sed`, and `make`
 - to build the text database, either:
   - [Go](https://go.dev/) — the default, faster extractor (`make`), or
   - [`ruby`](https://www.ruby-lang.org/) — the reference extractor (`make EXTRACTOR=ruby`)

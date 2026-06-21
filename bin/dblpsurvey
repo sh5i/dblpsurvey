@@ -7,8 +7,8 @@ KEY_FILTER=(cat)
 DOI_FILTER=(cat)
 while getopts kdp:bi: OPT; do
   case $OPT in
-    k) KEY_FILTER=(perl -pe 's/^[^ ]+ //') ;;
-    d) DOI_FILTER=(perl -pe 's/ [^ ]*\n$/\n/') ;;
+    k) KEY_FILTER=(sed 's/^[^ ]* //') ;;
+    d) DOI_FILTER=(sed 's/ [^ ]*$//') ;;
     p) PROFILE=$OPTARG ;;                  # search the data/<PROFILE>.txt.gz text DB
     b) BIBTEX=1 ;;                         # emit the picks as BibTeX to stdout
     i) INSERT=$OPTARG ;;                   # insert the picks (as BibTeX) into the given .bib
@@ -67,4 +67,4 @@ fi
 printf '%s\n' "$selection" \
   | "${KEY_FILTER[@]}" \
   | "${DOI_FILTER[@]}" \
-  | tee >(perl -pe 's/\e\[[;\d]*m//g' | "${PBCOPY[@]}")
+  | tee >(sed $'s/\033\\[[0-9;]*m//g' | "${PBCOPY[@]}")
