@@ -13,10 +13,10 @@ A grep- and SQL-friendly survey toolkit over the [dblp](https://dblp.org/) bibli
 All CLIs live in `bin/`.
 
 - **`dblpsurvey`** — search and pick papers; copy them to the clipboard, print them as BibTeX, or insert them straight into a `.bib`.
-- **`dblpbib`** — check and fix an existing `.bib` against DBLP, offline: correct author/year/pages/volume, fill missing fields, normalise venue names, swap an arXiv preprint for its published version — `git add -p`-style select-then-apply.
+- **`dblplint`** — check and fix an existing `.bib` against DBLP, offline: correct author/year/pages/volume, fill missing fields, normalise venue names, swap an arXiv preprint for its published version — `git add -p`-style select-then-apply.
 - **`dblpcite`** — turn DBLP keys into BibTeX entries (the bridge `dblpsurvey -i` uses; also composable on its own).
 
-Behind `dblpsurvey -i` / `dblpbib --apply` sits `bibgraft`, a convention-preserving, minimal-diff `.bib` editor that inserts/edits entries in your file's own layout.
+Behind `dblpsurvey -i` / `dblplint --apply` sits `bibgraft`, a convention-preserving, minimal-diff `.bib` editor that inserts/edits entries in your file's own layout.
 
 ## Prerequisites
 
@@ -25,7 +25,7 @@ Behind `dblpsurvey -i` / `dblpbib --apply` sits `bibgraft`, a convention-preserv
   - [Go](https://go.dev/) — the default, faster extractor (`make`), or
   - [`ruby`](https://www.ruby-lang.org/) — the reference extractor (`make EXTRACTOR=ruby`)
 - for the SQLite database: the [`sqlite3`](https://sqlite.org/) CLI (with FTS5)
-- for the `.bib` tools (`dblpbib`, `dblpcite`): Python 3 (standard library only). Their insert/apply path also uses a vendored copy of `bibtexparser` — a git submodule, pulled in by the `--recurse-submodules` clone below (or `git submodule update --init`; `make test` fetches it too).
+- for the `.bib` tools (`dblplint`, `dblpcite`): Python 3 (standard library only). Their insert/apply path also uses a vendored copy of `bibtexparser` — a git submodule, pulled in by the `--recurse-submodules` clone below (or `git submodule update --init`; `make test` fetches it too).
 - for search: [`fzf`](https://github.com/junegunn/fzf), [`peco`](https://github.com/peco/peco), or `grep`
 - (optional) to paste to the clipboard: `pbcopy`, `xsel`, or `putclip`
 
@@ -70,27 +70,27 @@ $ dblpsurvey -i refs.bib code smells      # pick -> BibTeX -> inserted into refs
 $ dblpsurvey -b code smells               # ... or just print the BibTeX to stdout
 ```
 
-## Checking a `.bib` — `dblpbib`
+## Checking a `.bib` — `dblplint`
 
 Match each entry in a `.bib` against the SQLite database and propose fixes.
 Nothing is applied until you choose (select-then-apply, like `git add -p`); every proposal has a stable id:
 
 ```
-$ dblpbib refs.bib                 # read-only report (safe in CI: a missing DB just skips, exit 0)
-$ dblpbib refs.bib --apply         # pick fixes interactively (fzf/peco), then apply
-$ dblpbib refs.bib --apply=all     # apply every proposal (add --safe for the confident ones only)
-$ dblpbib refs.bib --mute          # silence proposals you've decided to keep, for good
-$ dblpbib --profile ml refs.bib    # check against the 'ml' profile's database
+$ dblplint refs.bib                 # read-only report (safe in CI: a missing DB just skips, exit 0)
+$ dblplint refs.bib --apply         # pick fixes interactively (fzf/peco), then apply
+$ dblplint refs.bib --apply=all     # apply every proposal (add --safe for the confident ones only)
+$ dblplint refs.bib --mute          # silence proposals you've decided to keep, for good
+$ dblplint --profile ml refs.bib    # check against the 'ml' profile's database
 ```
 
 Authoritative fields (author, year, pages, volume, number) are corrected from DBLP; missing fields are filled; venue names and a differing DOI are offered for review; an arXiv entry that has since been published is offered a whole-entry swap.
-Decisions you want to keep can be silenced durably via an in-file `@comment{dblpbib-ignore ...}` block.
-See `dblpbib --help` for the full set of flags.
+Decisions you want to keep can be silenced durably via an in-file `@comment{dblplint-ignore ...}` block.
+See `dblplint --help` for the full set of flags.
 
 For a `.bib` entry with a stale year, a truncated author list, an abbreviated journal, and a missing issue number and DOI, the report groups proposals per entry — `~` a confident correction, `?` a change left to your judgement, `+` a missing field — each tagged with a stable `key:field` id:
 
 ```
-$ dblpbib refs.bib
+$ dblplint refs.bib
 ● Context-based approach to prioritize code smells for prefactoring  SaeLim2018
   ~ edit author     Natthawute Sae-Lim and others → Natthawute Sae-Lim and Shinpei Hayashi and Moto…  SaeLim2018:author
   ~ edit year       2017 → 2018  SaeLim2018:year
@@ -99,10 +99,10 @@ $ dblpbib refs.bib
   + add  doi        10.1002/smr.1886  SaeLim2018:doi
 
 summary: 1 mismatch
-  apply: dblpbib BIB --apply   ·   silence: dblpbib BIB --mute
+  apply: dblplint BIB --apply   ·   silence: dblplint BIB --mute
 ```
 
-`dblpbib refs.bib --apply` then lets you pick which of these to accept; the chosen fixes are written back in the file's own layout (via `bibgraft`).
+`dblplint refs.bib --apply` then lets you pick which of these to accept; the chosen fixes are written back in the file's own layout (via `bibgraft`).
 The report's non-zero exit on a mismatch makes it a usable CI gate.
 
 ## Configuration
@@ -147,14 +147,14 @@ Add another by writing a new config and building it:
 # write config/ml.yaml (start from a sample, or copy config/default.yaml), then
 $ make PROFILE=ml                            # -> data/ml.txt.gz, data/ml.db
 $ dblpsurvey -p ml deep learning             # search the ml text database
-$ dblpbib --profile ml refs.bib              # check a .bib against the ml database
+$ dblplint --profile ml refs.bib              # check a .bib against the ml database
 ```
 
 Your profiles (including `default.yaml`) are git-ignored; only the `sample-*.yaml` are tracked.
 
 ## Database
 
-`make` builds `data/<profile>.db`, a SQLite database for structured and full-text queries — handy for scripts, or for `dblpbib`'s offline checks.
+`make` builds `data/<profile>.db`, a SQLite database for structured and full-text queries — handy for scripts, or for `dblplint`'s offline checks.
 Build it alone with `make data/<profile>.db` (e.g. `make data/default.db`; needs the `sqlite3` CLI with FTS5).
 Its core is one flat table `entries` plus a full-text table `fts`, with two small lookup tables (`proceedings`, `journals`) you can join for clean venue/journal names:
 

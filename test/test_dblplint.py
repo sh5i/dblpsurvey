@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Tests for dblpbib (offline .bib checker). Builds a tiny fixture dblp.db from the
-real schema.sql; stdlib only. Run: python3 test/test_dblpbib.py  (or via `make test`)."""
+"""Tests for dblplint (offline .bib checker). Builds a tiny fixture dblp.db from the
+real schema.sql; stdlib only. Run: python3 test/test_dblplint.py  (or via `make test`)."""
 
 import os
 import sqlite3
@@ -9,11 +9,11 @@ import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# dblpbib is an executable CLI with no .py extension, so load it from its path.
+# dblplint is an executable CLI with no .py extension, so load it from its path.
 from importlib.machinery import SourceFileLoader            # noqa: E402
 from importlib.util import module_from_spec, spec_from_loader  # noqa: E402
-_loader = SourceFileLoader("dblpbib", os.path.join(ROOT, "bin", "dblpbib"))
-bc = module_from_spec(spec_from_loader("dblpbib", _loader))
+_loader = SourceFileLoader("dblplint", os.path.join(ROOT, "bin", "dblplint"))
+bc = module_from_spec(spec_from_loader("dblplint", _loader))
 _loader.exec_module(bc)
 
 ECOLS = ("key", "type", "venue", "year", "authors", "title", "title_norm",
@@ -123,7 +123,7 @@ class HelperTests(unittest.TestCase):
         self.assertIsNotNone(bc._parse_selector("noColonHere")[1])
 
     def test_parse_ignores_whitespace_and_comments(self):
-        text = ("@comment{dblpbib-ignore\n"
+        text = ("@comment{dblplint-ignore\n"
                 "  A:year  B:doi   # two selectors on a line, then a comment\n"
                 "  *:doi\n"
                 "  % a full-line comment\n"
@@ -138,14 +138,14 @@ class HelperTests(unittest.TestCase):
         sels, _ = bc.parse_ignores(out)
         self.assertEqual({s["sel"] for s in sels}, {"A:year", "A:doi"})
         self.assertIn("@article{A,", out)                       # entry preserved
-        self.assertEqual(out.count("@comment{dblpbib-ignore"), 1)
+        self.assertEqual(out.count("@comment{dblplint-ignore"), 1)
 
     def test_write_ignores_appends_to_existing(self):
-        text = "@comment{dblpbib-ignore\n  A:year\n}\n\n@article{A, title={T}, year={2020}}\n"
+        text = "@comment{dblplint-ignore\n  A:year\n}\n\n@article{A, title={T}, year={2020}}\n"
         out = bc._write_ignores(text, ["B:doi"])
         sels, _ = bc.parse_ignores(out)
         self.assertEqual({s["sel"] for s in sels}, {"A:year", "B:doi"})
-        self.assertEqual(out.count("@comment{dblpbib-ignore"), 1)   # appended, not a 2nd block
+        self.assertEqual(out.count("@comment{dblplint-ignore"), 1)   # appended, not a 2nd block
 
     def test_write_ignores_below_header(self):
         # the new block goes below leading comments and @string/@comment, above the first entry.
@@ -154,16 +154,16 @@ class HelperTests(unittest.TestCase):
                 "@string{me = {Me}}\n\n"
                 "@article{A, title={T}, year={2020}}\n")
         out = bc._write_ignores(text, ["A:year"])
-        self.assertLess(out.index("% my refs"), out.index("@comment{dblpbib-ignore"))
-        self.assertLess(out.index("@string{me"), out.index("@comment{dblpbib-ignore"))
-        self.assertLess(out.index("@comment{dblpbib-ignore"), out.index("@article{A,"))
+        self.assertLess(out.index("% my refs"), out.index("@comment{dblplint-ignore"))
+        self.assertLess(out.index("@string{me"), out.index("@comment{dblplint-ignore"))
+        self.assertLess(out.index("@comment{dblplint-ignore"), out.index("@article{A,"))
         self.assertEqual({s["sel"] for s in bc.parse_ignores(out)[0]}, {"A:year"})
 
 
 class CheckTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.tmp = tempfile.mkdtemp(prefix="dblpbib-test.")
+        cls.tmp = tempfile.mkdtemp(prefix="dblplint-test.")
         cls.con = build_db(os.path.join(cls.tmp, "fixture.db"))
 
     @classmethod

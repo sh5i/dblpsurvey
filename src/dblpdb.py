@@ -3,9 +3,9 @@
 `Db` is a repository over an open dblp.db connection (look records up); `DblpEntry` is a
 single `entries` row with the behaviour to read, compare and serialise it (the .bib side is
 bibspan's `Entry`; this is the DBLP side).  The free functions are the pure value transforms
-(field formatting, name folding) the two classes -- and dblpbib's matching -- share.
+(field formatting, name folding) the two classes -- and dblplint's matching -- share.
 
-Used by dblpbib (the .bib linter) and, in time, the BibTeX-emitting side of dblpsurvey, so
+Used by dblplint (the .bib linter) and, in time, the BibTeX-emitting side of dblpsurvey, so
 the rule for turning a DBLP record into a citation lives in ONE place, not inside either CLI.
 """
 

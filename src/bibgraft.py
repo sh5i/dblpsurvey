@@ -6,7 +6,7 @@ what the ops reference and rendering new/changed content in the file's OWN forma
 conventions.  Untouched entries and fields stay byte-for-byte identical.
 
 It is not a normalizer: it never rewrites a file into one house style.  It is op
-driven and producer-agnostic -- ops may come from dblpbib (DBLP diffing), a style
+driven and producer-agnostic -- ops may come from dblplint (DBLP diffing), a style
 linter, a hand patch, an LLM, ...  bibgraft knows neither their source nor reason.
 
 Op stream (NDJSON on stdin; one self-contained op per line):

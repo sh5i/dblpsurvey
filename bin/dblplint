@@ -9,23 +9,23 @@ venue names and a differing DOI offered too.  Nothing is auto-applied: you choos
 The change model is select-then-apply (like `git add -p`).  Every proposed change has a
 stable id `citekey:field` (or `citekey:@` for an arXiv->published whole-entry swap):
 
-  dblpbib refs.bib                       # read-only report (each proposal shows its id)
-  dblpbib refs.bib --apply               # choose changes interactively (fzf/peco), then apply
-  dblpbib refs.bib --apply=all           # apply every proposal (add --safe for confident only)
-  dblpbib refs.bib --oneline | fzf | dblpbib refs.bib --apply=stdin   # compose your own picker
-  dblpbib refs.bib --mute                # pick proposals to silence for good (interactively)
-  dblpbib refs.bib --mute=all            # silence every still-warning proposal for good
-  dblpbib refs.bib --show ID             # one proposal's full before/after (fzf preview)
-  dblpbib refs.bib -a                    # also show suppressed (ignored) proposals
-  dblpbib refs.bib --ignore key:doi      # suppress one proposal for this run (ephemeral)
-  dblpbib refs.bib --profile ml           # check against the 'ml' profile DB (data/ml.db)
+  dblplint refs.bib                       # read-only report (each proposal shows its id)
+  dblplint refs.bib --apply               # choose changes interactively (fzf/peco), then apply
+  dblplint refs.bib --apply=all           # apply every proposal (add --safe for confident only)
+  dblplint refs.bib --oneline | fzf | dblplint refs.bib --apply=stdin   # compose your own picker
+  dblplint refs.bib --mute                # pick proposals to silence for good (interactively)
+  dblplint refs.bib --mute=all            # silence every still-warning proposal for good
+  dblplint refs.bib --show ID             # one proposal's full before/after (fzf preview)
+  dblplint refs.bib -a                    # also show suppressed (ignored) proposals
+  dblplint refs.bib --ignore key:doi      # suppress one proposal for this run (ephemeral)
+  dblplint refs.bib --profile ml           # check against the 'ml' profile DB (data/ml.db)
 
 Proposals you have deliberately decided not to change can be silenced.  An in-file
 block (travels with the .bib; @comment is ignored by BibTeX/biblatex) lists selectors
 `<keypat>:<fieldlist>`, whitespace-separated (any number per line); `#` or `%` starts a
 to-end-of-line comment:
 
-  @comment{dblpbib-ignore
+  @comment{dblplint-ignore
     Yu2021:doi  Yu2021:booktitle,note   # preprint DOI + short venue form kept
     *:doi                               # I always keep my own DOIs  ('*' key = any entry)
     @misc:*                             # out of DB scope            ('@type' = a type)
@@ -70,7 +70,7 @@ def _sibling(name):
 
 # --- author-name helpers (match a .bib author list against DBLP) --------------
 # norm_*/fmt_*/_delatex/_fold and the DB→BibTeX serialiser now live in src/dblpdb.py
-# (imported above); only the .bib-author matching is dblpbib-specific.
+# (imported above); only the .bib-author matching is dblplint-specific.
 
 def is_truncated(author):
     """True if the author list is explicitly cut short ('and others' / 'et al')."""
@@ -98,7 +98,7 @@ def surnames(s):
     return out
 
 # --- entry parsing (via bibspan, the shared bibtexparser-backed parser) -------
-# dblpbib only needs each entry's type, key and field values to match it against the DB,
+# dblplint only needs each entry's type, key and field values to match it against the DB,
 # all of which bibspan's Entry already exposes (.type / .key / .get).  Reusing it -- the
 # very parser bibgraft.apply uses -- means a check and a later --apply resolve exactly the
 # same entries (no two-parser drift).
@@ -117,7 +117,7 @@ def _match_brace(text, i):
 
 def parse_bib(text):
     """Parse @article/@inproceedings (and arXiv @misc) entries with bibspan. @string/
-    @preamble/@comment (including the dblpbib-ignore block) and other types are skipped;
+    @preamble/@comment (including the dblplint-ignore block) and other types are skipped;
     @misc is kept so arXiv preprints can be checked for a published version."""
     return [e for e in _sibling("bibspan").parse(text)
             if e.type in ("article", "inproceedings", "misc")]
@@ -363,7 +363,7 @@ def derive(db, entries, short=False, selectors=()):
 def all_proposals(findings):
     return [p for f in findings for p in f.get("proposals", [])]
 
-# --- suppression (the @comment{dblpbib-ignore ...} block) ---------------------
+# --- suppression (the @comment{dblplint-ignore ...} block) ---------------------
 # Selectors are whitespace-separated tokens "<keypat>:<fieldlist>" (any number per line);
 # '#' or '%' starts an end-of-line comment (use it for human notes / reasons).
 #   keypat    = a cite key | '*' (any entry) | '@type' (any entry of that type)
@@ -372,7 +372,7 @@ def all_proposals(findings):
 # Split on the LAST ':' (keys may contain ':'); an embedded key glob (e.g. hoge-*)
 # is reserved -> a loud error, never a silent no-match.
 
-IGNORE_BLOCK = re.compile(r"@comment\s*\{\s*dblpbib-ignore[ \t]*:?", re.I)
+IGNORE_BLOCK = re.compile(r"@comment\s*\{\s*dblplint-ignore[ \t]*:?", re.I)
 
 def _tokens(text):
     """Whitespace-separated selector tokens, with '#'/'%' to-end-of-line comments stripped."""
@@ -400,7 +400,7 @@ def _selectors_from(toks):
     return selectors, errors
 
 def parse_ignores(text):
-    """Selectors from every @comment{dblpbib-ignore ...} block. Returns (selectors, errors)."""
+    """Selectors from every @comment{dblplint-ignore ...} block. Returns (selectors, errors)."""
     toks = []
     for m in IGNORE_BLOCK.finditer(text):
         toks += _tokens(text[m.end():_match_brace(text, text.index("{", m.start()))])
@@ -425,7 +425,7 @@ def _first_entry_offset(text):
     return None
 
 def _write_ignores(text, sels):
-    """Add selector tokens (one per line) to the @comment{dblpbib-ignore} block.  If the block
+    """Add selector tokens (one per line) to the @comment{dblplint-ignore} block.  If the block
     is absent it is created just above the first entry -- below any leading comments / @string /
     @preamble -- so the file header stays on top.  Returns the new text (a minimal edit)."""
     add = "".join("  %s\n" % s for s in sels)
@@ -434,7 +434,7 @@ def _write_ignores(text, sels):
         close = _match_brace(text, text.index("{", m.start()))
         head = text[:close]
         return head + ("" if head.endswith("\n") else "\n") + add + text[close:]
-    block = "@comment{dblpbib-ignore\n" + add + "}\n"
+    block = "@comment{dblplint-ignore\n" + add + "}\n"
     pos = _first_entry_offset(text)
     if pos is None:                                # no entries -> append at the end
         return text + ("" if not text or text.endswith("\n") else "\n") + "\n" + block
@@ -593,7 +593,7 @@ def _pick(props, findings):
     picker = shutil.which("fzf") or shutil.which("peco")
     if not picker:
         sys.stderr.write("interactive mode needs fzf or peco; or compose with a pipe: "
-                         "dblpbib BIB --oneline | <picker> | dblpbib BIB --apply=stdin\n")
+                         "dblplint BIB --oneline | <picker> | dblplint BIB --apply=stdin\n")
         return None
     if os.path.basename(picker) == "fzf":
         cc = _colorer(True)
@@ -694,7 +694,7 @@ def cmd_apply(db, entries, text, short, mode, safe, bib, dry_run, color, selecto
     return 0
 
 def cmd_mute(db, entries, text, short, mode, safe, bib, dry_run, selectors, color):
-    """Write proposals into the in-file @comment{dblpbib-ignore} block, silencing them for
+    """Write proposals into the in-file @comment{dblplint-ignore} block, silencing them for
     good.  mode: 'interactive' (pick via fzf/peco), 'stdin' (ids piped in), or 'all' (every
     candidate; with `safe`, only the confident/non-review ones)."""
     c = _colorer(color)
@@ -784,7 +784,7 @@ def report(findings, selectors, counts, color, verbose, show_suppressed):
              if counts[k]]
     print("\n%s %s" % (c.bold("summary:"), ", ".join(parts) or "nothing to check"))
     if any(counts[k] for k in ("mismatch", "review", "incomplete", "upgrade")):
-        print(c.dim("  apply: dblpbib BIB --apply   ·   silence: dblpbib BIB --mute"))
+        print(c.dim("  apply: dblplint BIB --apply   ·   silence: dblplint BIB --mute"))
 
 def main():
     ap = argparse.ArgumentParser(description="Check/fix a .bib file against dblp.db")
@@ -806,7 +806,7 @@ def main():
                          "(non-review) proposals.")
     ap.add_argument("--mute", nargs="?", const="interactive", choices=MODES, metavar="MODE",
                     help="silence proposals for good by writing them into the in-file "
-                         "@comment{dblpbib-ignore} block. Same MODEs as --apply.")
+                         "@comment{dblplint-ignore} block. Same MODEs as --apply.")
     ap.add_argument("--safe", action="store_true",
                     help="restrict the recommended set to confident (non-review) proposals "
                          "(affects --oneline and the 'all'/'interactive' modes of --apply/--mute)")
@@ -819,7 +819,7 @@ def main():
     ap.add_argument("--ignore", action="append", default=[], metavar="SEL",
                     help="suppress proposals matching SEL (key:field[,field] / *:field / "
                          "@type:field); repeatable. Ephemeral; durable rules go in a "
-                         "@comment{dblpbib-ignore ...} block in the .bib.")
+                         "@comment{dblplint-ignore ...} block in the .bib.")
     ap.add_argument("-a", "--show-suppressed", action="store_true",
                     help="also show suppressed (ignored) proposals, dimmed")
     ap.add_argument("--json", action="store_true", help="emit findings as JSON (report mode)")
@@ -843,7 +843,7 @@ def main():
     db_path = args.db or os.path.join(_ROOT, "data", args.profile + ".db")
     if not os.path.exists(db_path):
         sys.stderr.write(
-            "dblpbib: no dblp.db at %s; skipping.\n"
+            "dblplint: no dblp.db at %s; skipping.\n"
             "  Build it with `make PROFILE=%s` (or pass --db PATH).\n"
             % (db_path, args.profile))
         return 0
@@ -858,11 +858,11 @@ def main():
     if args.show is not None:
         return cmd_show(db, entries, args.short, args.show, color)
 
-    selectors, ig_err = parse_ignores(text)         # @comment{dblpbib-ignore ...} + --ignore
+    selectors, ig_err = parse_ignores(text)         # @comment{dblplint-ignore ...} + --ignore
     cli_sel, cli_err = cli_ignores(args.ignore)
     selectors += cli_sel
     for e in ig_err + cli_err:
-        sys.stderr.write("dblpbib: %s\n" % e)
+        sys.stderr.write("dblplint: %s\n" % e)
 
     if args.oneline:
         return cmd_oneline(derive(db, entries, args.short, selectors), args.safe, color)
