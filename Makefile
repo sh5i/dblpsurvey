@@ -56,10 +56,11 @@ build/dblp2text: src/dblp_text.go go.mod go.sum | build
 	go build -mod=readonly -o $@ ./src
 
 # Verify the Go and Python extractors agree and the emitted SQL builds a queryable DB
-# (test/test_extract.sh), then the dblplint .bib-checker (test/test_dblplint.py) and the bibgraft
-# .bib editor (test/test_bibgraft.py) against fixtures.
+# (test/test_extract.sh), then the dblpdb domain layer (test/test_dblpdb.py), the dblplint
+# .bib-checker (test/test_dblplint.py) and the bibgraft .bib editor (test/test_bibgraft.py).
 test: build/dblp2text vendor/bibtexparser/bibtexparser/splitter.py vendor/pyyaml/lib/yaml/__init__.py
 	@./test/test_extract.sh
+	@python3 test/test_dblpdb.py
 	@python3 test/test_dblplint.py
 	@python3 test/test_bibgraft.py
 
