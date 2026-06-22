@@ -25,9 +25,12 @@ def norm_pages(s):
     return "-".join(re.findall(r"\d+", s or ""))
 
 def fmt_pages(s):
-    """House style for a page range: two numbers joined by '--' (per bib-guide)."""
-    nums = re.findall(r"\d+", s or "")
-    return "--".join(nums) if len(nums) == 2 else (s or "")
+    """House style for a page range: two dash-separated numbers joined by '--' (per bib-guide).
+    Only a real range ('1-12', '1--12') collapses; a list ('1,5'), a single page, or a
+    non-numeric form is left untouched -- so a comma list isn't turned into a false range."""
+    s = s or ""
+    m = re.fullmatch(r"\s*(\d+)\s*[-–—]+\s*(\d+)\s*", s)
+    return "%s--%s" % (m.group(1), m.group(2)) if m else s
 
 def authors_to_bib(s):
     """DB authors 'Given Family 0001, Given Family, ...' -> 'A and B and ...'."""
@@ -36,6 +39,11 @@ def authors_to_bib(s):
 
 def strip_doi(s):
     return re.sub(r"^https?://(dx\.)?doi\.org/", "", s or "", flags=re.I)
+
+def like_escape(s):
+    """Escape LIKE metacharacters so a literal id matches literally (use with ESCAPE '\\').
+    Without this, a '_' or '%' in a DOI/arXiv id would act as a wildcard and over-match."""
+    return re.sub(r"([\\%_])", r"\\\1", s or "")
 
 def _delatex(s):
     """Strip LaTeX accent/markup so it neither leaks letters nor splits a name.
@@ -204,14 +212,16 @@ class Db:
             "SELECT * FROM entries WHERE doi = 'https://doi.org/' || ?", (doi,)).fetchall()
         if not rows:
             rows = self.con.execute(
-                "SELECT * FROM entries WHERE ee LIKE '%' || ? || '%'", (doi,)).fetchall()
+                "SELECT * FROM entries WHERE ee LIKE '%' || ? || '%' ESCAPE '\\'",
+                (like_escape(doi),)).fetchall()
         return self._split(rows)
 
     def by_arxiv(self, axid):
         """Find the DBLP CoRR (arXiv) record for an arXiv id, via its ee link.  Lets us
         match even when the arXiv title changed across versions (always preprints)."""
         rows = self.con.execute("SELECT * FROM entries WHERE venue='corr' AND "
-                                "ee LIKE '%' || ? || '%'", (axid,)).fetchall()
+                                "ee LIKE '%' || ? || '%' ESCAPE '\\'",
+                                (like_escape(axid),)).fetchall()
         return [], [DblpEntry(self.con, r) for r in rows]
 
     def fuzzy(self, title, limit=4):
