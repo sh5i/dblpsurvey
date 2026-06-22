@@ -44,8 +44,10 @@ clean:
 distclean: clean
 	rm -f data/dblp.xml.gz data/dblp.xml.gz.0 data/dblp.dtd
 
-build/dblp2text: src/dblp_text.go go.mod | build
-	go build -o $@ ./src
+# -mod=readonly: the repo-root vendor/ holds git submodules (not Go modules), which would
+# otherwise put `go build` into vendor mode; this keeps it on the pinned go.mod/go.sum.
+build/dblp2text: src/dblp_text.go go.mod go.sum | build
+	go build -mod=readonly -o $@ ./src
 
 # Verify the Go and Python extractors agree and the emitted SQL builds a queryable DB
 # (test/test_extract.sh), then the dblplint .bib-checker (test/test_dblplint.py) and the bibgraft

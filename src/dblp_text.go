@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -289,81 +291,38 @@ func extract(record string) (entry, bool) {
 	return entry{year, ref, out}, true
 }
 
+// loadConfig reads the preference YAML with gopkg.in/yaml.v3: which journals/conferences
+// and which year range survive.  Returns an error when the file can't be read or isn't a
+// YAML mapping, so the caller can report it as missing.  Mirrors dblp_text.py's load_config.
 func loadConfig(path string) (journals, confs map[string]bool, journalNames map[string]string, lower, upper int, err error) {
 	journals, confs = map[string]bool{}, map[string]bool{}
 	journalNames = map[string]string{}
 	lower, upper = 1900, 2100
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
-	defer f.Close()
-	section := ""
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := sc.Text()
-		if i := strings.IndexByte(line, '#'); i >= 0 {
-			line = line[:i]
-		}
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		if !strings.HasPrefix(line, " ") && strings.HasSuffix(strings.TrimRight(line, " \t"), ":") {
-			section = strings.TrimSuffix(strings.TrimRight(line, " \t"), ":")
-			continue
-		}
-		t := strings.TrimSpace(line)
-		switch {
-		case strings.HasPrefix(t, "- "):
-			v := unquoteYAML(strings.TrimSpace(t[2:])) // a "*" item needs YAML quotes stripped
-			if section == "journals" {
-				journals[v] = true
-			} else if section == "conferences" {
-				confs[v] = true
-			}
-		case section == "journal_names" && strings.HasPrefix(t, `"`):
-			// a quoted YAML mapping line:  "abbrev": "full title"
-			if k, v, ok := parseQuotedPair(t); ok {
-				journalNames[k] = v
-			}
-		case strings.HasPrefix(t, "lower:"):
-			lower, _ = strconv.Atoi(strings.TrimSpace(t[len("lower:"):]))
-		case strings.HasPrefix(t, "upper:"):
-			upper, _ = strconv.Atoi(strings.TrimSpace(t[len("upper:"):]))
-		}
+	var cfg struct {
+		Journals     []string                  `yaml:"journals"`
+		Conferences  []string                  `yaml:"conferences"`
+		JournalNames map[string]string         `yaml:"journal_names"`
+		Year         struct{ Lower, Upper int } `yaml:"year"`
 	}
+	cfg.Year.Lower, cfg.Year.Upper = lower, upper // defaults kept when the year keys are absent
+	if err = yaml.Unmarshal(data, &cfg); err != nil {
+		return
+	}
+	for _, j := range cfg.Journals {
+		journals[j] = true
+	}
+	for _, c := range cfg.Conferences {
+		confs[c] = true
+	}
+	for k, v := range cfg.JournalNames {
+		journalNames[k] = v
+	}
+	lower, upper = cfg.Year.Lower, cfg.Year.Upper
 	return
-}
-
-// unquoteYAML strips a single pair of surrounding double or single quotes, if present
-// (so the YAML scalar `"*"` becomes `*`).  Plain unquoted scalars pass through unchanged.
-func unquoteYAML(s string) string {
-	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {
-		return s[1 : len(s)-1]
-	}
-	return s
-}
-
-// parseQuotedPair reads a `"key": "value"` line (both double-quoted, no escaped quotes —
-// DBLP journal names contain none) into its key and value.
-func parseQuotedPair(t string) (key, val string, ok bool) {
-	rest := t[1:] // drop opening quote
-	ke := strings.IndexByte(rest, '"')
-	if ke < 0 {
-		return
-	}
-	key = rest[:ke]
-	rest = rest[ke+1:]
-	vs := strings.IndexByte(rest, '"') // opening quote of value
-	if vs < 0 {
-		return
-	}
-	rest = rest[vs+1:]
-	ve := strings.IndexByte(rest, '"')
-	if ve < 0 {
-		return
-	}
-	return key, rest[:ve], true
 }
 
 func loadDTD(path string) map[string]string {
