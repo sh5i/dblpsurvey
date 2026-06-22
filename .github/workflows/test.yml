@@ -12,7 +12,4 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.3'
       - run: make test

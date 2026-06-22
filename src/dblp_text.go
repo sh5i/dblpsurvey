@@ -1,8 +1,8 @@
-// dblp_text.go — fast Go counterpart of dblp_text.rb (identical I/O: raw DBLP XML
+// dblp_text.go — fast Go counterpart of dblp_text.py (identical I/O: raw DBLP XML
 // on stdin, flags --color/--format/--config/--dtd).  --format text (default) emits
 // one line per entry; --format sql emits INSERTs for the SQLite database.
 // A byte-scanning producer finds entry boundaries (no regexp) and a pool of worker
-// goroutines does the per-entry extraction.  Kept in sync with dblp_text.rb; run
+// goroutines does the per-entry extraction.  Kept in sync with dblp_text.py; run
 // `make test` to verify the two agree.
 package main
 
@@ -92,8 +92,8 @@ func textOf(rec string, re *regexp.Regexp) (string, bool) {
 
 func sqlQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 
-// normTitle mirrors dblp_text.rb's title_norm: keep ASCII alphanumerics only,
-// lowercased.  ASCII-only on purpose so Ruby/Go/query side normalise identically.
+// normTitle mirrors dblp_text.py's title_norm: keep ASCII alphanumerics only,
+// lowercased.  ASCII-only on purpose so every extractor and the query side normalise identically.
 func normTitle(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {

@@ -23,8 +23,8 @@ Behind `dblpsurvey -i` / `dblplint --apply` sits `bibgraft`, a convention-preser
 - Basic commands: `bash`, `curl`, `gzip`, `gunzip`, `realpath`, `sed`, and `make`
 - to build the text database, either:
   - [Go](https://go.dev/) — the default, faster extractor (`make`), or
-  - [`ruby`](https://www.ruby-lang.org/) — the reference extractor (`make EXTRACTOR=ruby`)
-- for the SQLite database: the [`sqlite3`](https://sqlite.org/) CLI (with FTS5)
+  - Python 3 — the reference extractor (`make EXTRACTOR=python`; reads its config with the vendored PyYAML submodule, pulled in by the `--recurse-submodules` clone below)
+- for the SQLite database: the [`sqlite3`](https://sqlite.org/) CLI (with FTS5) and Python 3 (the conference-name post-pass `dblp_confname.py`, standard library only)
 - for the `.bib` tools (`dblplint`, `dblpcite`): Python 3 (standard library only). Their insert/apply path also uses a vendored copy of `bibtexparser` — a git submodule, pulled in by the `--recurse-submodules` clone below (or `git submodule update --init`; `make test` fetches it too).
 - for search: [`fzf`](https://github.com/junegunn/fzf), [`peco`](https://github.com/peco/peco), or `grep`
 - (optional) to paste to the clipboard: `pbcopy`, `xsel`, or `putclip`
@@ -40,7 +40,7 @@ $ sudo make install            # optional: ln -s $(realpath ./bin/dblpsurvey) /u
 ```
 
 `make` downloads the DBLP XML from <https://dblp.org/>, filters it by `config/default.yaml`, and writes the text and SQLite databases under `data/`.
-The two extractors are interchangeable: `src/dblp_text.go` (default) and `src/dblp_text.rb` (`make EXTRACTOR=ruby`, no Go toolchain needed); `make test` checks they produce identical output.
+The two extractors are interchangeable: `src/dblp_text.go` (default) and `src/dblp_text.py` (`make EXTRACTOR=python`, no Go toolchain needed); `make test` checks they produce identical output.
 
 ## Searching — `dblpsurvey`
 

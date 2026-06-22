@@ -1,5 +1,5 @@
 -- SQLite schema for the DBLP database built by `make dblp.db`.
--- Loaded first; then dblp_text.rb/.go --format=sql streams the INSERTs; then the
+-- Loaded first; then dblp_text.py/.go --format=sql streams the INSERTs; then the
 -- fts table is populated (see the Makefile).  One row per entry, flat (no joins):
 -- all ee links are concatenated into `ee` so any of them matches `ee LIKE '%doi%'`.
 
@@ -29,7 +29,7 @@ CREATE INDEX idx_crossref   ON entries(crossref);
 
 -- Proceedings volume records (the long conference name lives here, in `title`).
 -- Join: entries.crossref = proceedings.key.
--- The kind/ordinal/conf_name/canonical columns are derived by dblp_confname.rb as a
+-- The kind/ordinal/conf_name/canonical columns are derived by dblp_confname.py as a
 -- post-pass (see the Makefile); `title` is the raw DBLP title and is left untouched.
 CREATE TABLE proceedings (
   key         TEXT PRIMARY KEY,  -- e.g. conf/icsm/2025

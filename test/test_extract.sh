@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test harness for dblpsurvey. The contract that lets dblp_text.rb stay the editable
+# Test harness for dblpsurvey. The contract that lets dblp_text.py stay the readable
 # reference and dblp_text.go a fast twin: both extractors must agree (text and sql),
 # and the emitted sql must build a queryable dblp.db. Multiset comparison (sort) since
 # the tie-order of equal-key entries differs between the two.
@@ -17,7 +17,7 @@ DTD=test/test.dtd
 FIX=test/fixture.xml
 CFG=test/config.yaml
 DB=$TMP/test.db
-RB="ruby src/dblp_text.rb"
+PY="python3 src/dblp_text.py"
 GO=./build/dblp2text
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -25,20 +25,20 @@ q()    { sqlite3 "$DB" "$1"; }
 eq()   { [ "$2" = "$3" ] || fail "$1 (got '$2', want '$3')"; }   # eq <what> <actual> <expected>
 
 # 1. extractors agree on the text output
-$RB --color --config="$CFG" --dtd="$DTD" < "$FIX" | sort > "$TMP/rb.txt"
+$PY --color --config="$CFG" --dtd="$DTD" < "$FIX" | sort > "$TMP/py.txt"
 $GO --color --config="$CFG" --dtd="$DTD" < "$FIX" | sort > "$TMP/go.txt"
-cmp -s "$TMP/rb.txt" "$TMP/go.txt" || { diff "$TMP/rb.txt" "$TMP/go.txt"; fail "text: ruby != go"; }
+cmp -s "$TMP/py.txt" "$TMP/go.txt" || { diff "$TMP/py.txt" "$TMP/go.txt"; fail "text: go != python"; }
 
 # 2. extractors agree on the sql output
-$RB --format=sql --config="$CFG" --dtd="$DTD" < "$FIX" | sort > "$TMP/rb.sql"
+$PY --format=sql --config="$CFG" --dtd="$DTD" < "$FIX" | sort > "$TMP/py.sql"
 $GO --format=sql --config="$CFG" --dtd="$DTD" < "$FIX" | sort > "$TMP/go.sql"
-cmp -s "$TMP/rb.sql" "$TMP/go.sql" || { diff "$TMP/rb.sql" "$TMP/go.sql"; fail "sql: ruby != go"; }
+cmp -s "$TMP/py.sql" "$TMP/go.sql" || { diff "$TMP/py.sql" "$TMP/go.sql"; fail "sql: go != python"; }
 
 # 3. the sql builds a queryable db
 sqlite3 "$DB" < src/schema.sql
 $GO --format=sql --config="$CFG" --dtd="$DTD" < "$FIX" | sqlite3 "$DB"
 q "INSERT INTO fts(key,title,authors) SELECT key,title,authors FROM entries;"
-ruby src/dblp_confname.rb "$DB" | sqlite3 "$DB"
+python3 src/dblp_confname.py "$DB" | sqlite3 "$DB"
 
 eq "row count"                  "$(q 'SELECT count(*) FROM entries')" 3
 eq "title_norm"                 "$(q "SELECT key FROM entries WHERE title_norm='onh2orefactoring'")" journals/tse/MuellerA14
@@ -54,13 +54,13 @@ eq "journal join"               "$(q "SELECT j.full_name FROM entries e JOIN jou
 
 # 4. pass-through ("*"): exercise the shipped config/sample-all.yaml; both extractors agree, and
 #    the otherwise-filtered venue (journals/xx, absent from test/config.yaml) now survives.
-$RB --format=sql --config=config/sample-all.yaml --dtd="$DTD" < "$FIX" | sort > "$TMP/rb.all"
+$PY --format=sql --config=config/sample-all.yaml --dtd="$DTD" < "$FIX" | sort > "$TMP/py.all"
 $GO --format=sql --config=config/sample-all.yaml --dtd="$DTD" < "$FIX" | sort > "$TMP/go.all"
-cmp -s "$TMP/rb.all" "$TMP/go.all" || { diff "$TMP/rb.all" "$TMP/go.all"; fail "wildcard: ruby != go"; }
-grep -q "journals/xx/Unwanted10" "$TMP/rb.all" || fail "wildcard: off-list venue not passed through"
+cmp -s "$TMP/py.all" "$TMP/go.all" || { diff "$TMP/py.all" "$TMP/go.all"; fail "wildcard: go != python"; }
+grep -q "journals/xx/Unwanted10" "$TMP/py.all" || fail "wildcard: off-list venue not passed through"
 
 # 5. fail-fast: a config selecting no venues (here: empty /dev/null) must error, not emit nothing.
-if $RB --format=sql --config=/dev/null --dtd="$DTD" < "$FIX" >/dev/null 2>&1; then fail "fail-fast: ruby accepted an empty config"; fi
+if $PY --format=sql --config=/dev/null --dtd="$DTD" < "$FIX" >/dev/null 2>&1; then fail "fail-fast: python accepted an empty config"; fi
 if $GO --format=sql --config=/dev/null --dtd="$DTD" < "$FIX" >/dev/null 2>&1; then fail "fail-fast: go accepted an empty config"; fi
 
 echo "PASS: text + sql agree; db builds and queries (title_norm, fts, ee, proceedings join, conf_name, journal join); wildcard + fail-fast"
