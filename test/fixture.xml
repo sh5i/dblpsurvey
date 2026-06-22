@@ -53,4 +53,13 @@
 <year>2005</year>
 <ee>https://example.org/q?a=1&amp;b=2</ee>
 </article>
+<article mdate="2018-01-01" key="journals/tse/Cafe18">
+<author>Zoe Quinn</author>
+<title>Caf&#xe9; and &#9731; in titles</title>
+<journal>IEEE Trans. Software Eng.</journal>
+<volume>44</volume>
+<number>2</number>
+<pages>30-40</pages>
+<year>2018</year>
+</article>
 </dblp>

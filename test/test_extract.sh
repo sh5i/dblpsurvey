@@ -40,7 +40,10 @@ $GO --format=sql --config="$CFG" --dtd="$DTD" < "$FIX" | sqlite3 "$DB"
 q "INSERT INTO fts(key,title,authors) SELECT key,title,authors FROM entries;"
 python3 src/dblp_confname.py "$DB" | sqlite3 "$DB"
 
-eq "row count"                  "$(q 'SELECT count(*) FROM entries')" 3
+eq "row count"                  "$(q 'SELECT count(*) FROM entries')" 4
+eq "doi fallback (no doi.org)"  "$(q "SELECT doi FROM entries WHERE key='journals/tse/Koehler05'")" "https://example.org/q?a=1&b=2"
+eq "no-ee doi empty"            "$(q "SELECT doi FROM entries WHERE key='journals/tse/Cafe18'")" ""
+eq "numeric entities decoded"   "$(q "SELECT title FROM entries WHERE key='journals/tse/Cafe18'")" "Café and ☃ in titles"
 eq "title_norm"                 "$(q "SELECT key FROM entries WHERE title_norm='onh2orefactoring'")" journals/tse/MuellerA14
 eq "fts"                        "$(q "SELECT key FROM fts WHERE fts MATCH 'refactoring'")" journals/tse/MuellerA14
 eq "ee like"                    "$(q "SELECT key FROM entries WHERE ee LIKE '%10.1/late%'")" journals/tse/MuellerA14
