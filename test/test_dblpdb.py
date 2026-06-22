@@ -144,15 +144,10 @@ class EntrySerialisation(unittest.TestCase):
         self.assertIn("doi = {10.1/tse21}", out)        # doi.org prefix stripped
 
     def test_to_bibtex_inproceedings_uses_booktitle(self):
-        out = self.db.by_key("conf/icse/Paper20").to_bibtex("Smith2020")
-        self.assertTrue(out.startswith("@inproceedings{Smith2020,"))
+        out = self.db.by_key("conf/icse/Paper20").to_bibtex("conf/icse/Paper20")
+        self.assertTrue(out.startswith("@inproceedings{conf/icse/Paper20,"))
         self.assertIn("booktitle =", out)
         self.assertNotIn("journal =", out)
-
-    def test_suggest_key_family_year_and_collision(self):
-        e = self.db.by_key("journals/tse/Art21")        # first author "Carol Lee 0001"
-        self.assertEqual(e.suggest_key(), "Lee2021")
-        self.assertEqual(e.suggest_key(used={"Lee2021"}), "Lee2021a")
 
 
 if __name__ == "__main__":

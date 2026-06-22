@@ -166,19 +166,6 @@ class DblpEntry:
         body = ",\n".join("  %s = {%s}" % (k, v) for k, v in fields if v)
         return "@%s{%s,\n%s\n}" % (self.type, citekey, body)
 
-    def suggest_key(self, used=()):
-        """A <Family><Year> citation key for this record, avoiding collisions in `used`."""
-        first = (self.row["authors"] or "anon").split(",")[0]
-        toks = re.sub(r"\s+\d{4}$", "", first).split()
-        fam = _fold(toks[-1]) if toks else "anon"
-        base = (fam[:1].upper() + fam[1:]) + str(self.row["year"] or "")
-        key, suffix = base, ord("a")
-        while key in used:
-            key = base + chr(suffix)
-            suffix += 1
-        return key
-
-
 # --- the repository: an open dblp.db ------------------------------------------
 
 class Db:

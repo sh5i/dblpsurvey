@@ -179,11 +179,6 @@ class CheckTests(unittest.TestCase):
     def by_field(f):
         return {p["field"]: p for p in f["proposals"]}
 
-    def test_suggest_key(self):
-        rec = bc.Db(self.con).by_key("conf/icse/Paper20")
-        self.assertEqual(rec.suggest_key(set()), "Smith2020")        # <Family><Year>
-        self.assertEqual(rec.suggest_key({"Smith2020"}), "Smith2020a")   # collisions -> a/b/c
-
     def test_dblpcite_emits_bibtex(self):
         # the dblpsurvey -> bibgraft bridge: a key (or a dblpsurvey '(key) ...' line) -> BibTeX
         import subprocess
@@ -191,7 +186,7 @@ class CheckTests(unittest.TestCase):
         db = os.path.join(self.tmp, "fixture.db")
         r = subprocess.run([cite, "--db", db], input="(conf/icse/Paper20) Alice ...\n",
                            capture_output=True, text=True)
-        self.assertIn("@inproceedings{Smith2020,", r.stdout)
+        self.assertIn("@inproceedings{conf/icse/Paper20,", r.stdout)   # citekey = DBLP key
         self.assertIn("booktitle", r.stdout)
         # a key absent from the DB is skipped (noted on stderr), not emitted
         r = subprocess.run([cite, "--db", db], input="nope/x/Y\n", capture_output=True, text=True)

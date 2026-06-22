@@ -53,18 +53,17 @@ def main():
     con.row_factory = sqlite3.Row
     db = Db(con)
 
-    used, out = set(), []
+    seen, out = set(), []
     for line in sys.stdin:
         key = _key(line)
-        if not key:
+        if not key or key in seen:        # DBLP keys are unique; drop repeated inputs
             continue
+        seen.add(key)
         rec = db.by_key(key)
         if rec is None:
             sys.stderr.write("dblpcite: not in DB, skipped: %s\n" % key)
             continue
-        ck = rec.suggest_key(used)
-        used.add(ck)
-        out.append(rec.to_bibtex(ck, args.short))
+        out.append(rec.to_bibtex(rec.key, args.short))   # citekey = the DBLP key, verbatim
     if out:
         sys.stdout.write("\n\n".join(out) + "\n")
     return 0
