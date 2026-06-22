@@ -851,8 +851,12 @@ def main():
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
     db = Db(con)
-    with open(args.bib, encoding="utf-8") as f:
-        text = f.read()
+    try:
+        with open(args.bib, encoding="utf-8") as f:
+            text = f.read()
+    except OSError as e:
+        sys.stderr.write("dblplint: cannot read '%s': %s\n" % (args.bib, e.strerror or e))
+        return 2
     entries = parse_bib(text)
 
     if args.show is not None:
