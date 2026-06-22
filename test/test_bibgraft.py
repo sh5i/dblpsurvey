@@ -235,6 +235,26 @@ class Robustness(unittest.TestCase):
         both = bg._insert_ops(raw, existing, True)
         self.assertEqual([o["op"] for o in both], ["add-entry", "replace-entry"])
 
+    def test_overlapping_set_ops_second_skipped(self):
+        # two set on one field would corrupt each other; keep the first, skip the second.
+        ops = [{"op": "set", "key": "Yu2021", "field": "year", "value": "2001"},
+               {"op": "set", "key": "Yu2021", "field": "year", "value": "2002"}]
+        out, applied, skipped = bg.apply(BRACE, ops)
+        self.assertEqual(len(applied), 1)
+        self.assertTrue(any("overlap" in r for _, r in skipped))
+        self.assertIn("year = {2001}", out)                # first op won
+        self.assertEqual(out.count("year = {"), 2)         # Yu2021 + Smith2020, no garbage
+        self.assertNotIn("}}", out)                        # not corrupted
+
+    def test_remove_then_set_same_field_second_skipped(self):
+        ops = [{"op": "remove", "key": "Yu2021", "field": "journal"},
+               {"op": "set", "key": "Yu2021", "field": "journal", "value": "X"}]
+        out, applied, skipped = bg.apply(BRACE, ops)
+        self.assertEqual(len(applied), 1)                  # only the remove applied
+        self.assertTrue(any("overlap" in r for _, r in skipped))
+        self.assertNotIn("journal", out)                   # removed, not half-set
+        self.assertIn("Smith2020", out)                    # rest intact
+
 
 if __name__ == "__main__":
     unittest.main()

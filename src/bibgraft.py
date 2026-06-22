@@ -360,7 +360,7 @@ def apply(text, ops, warn=None):
                 if not e:
                     skipped.append((op, "no such entry: %s" % key))
                     continue
-                edits.append(_set_edit(e, fs, op["field"], op["value"], warn))
+                edits.append(_set_edit(e, fs, op["field"], op["value"], warn) + (op,))
                 applied.append(op)
             elif op_name == "remove":
                 e = live(key)
@@ -371,14 +371,14 @@ def apply(text, ops, warn=None):
                 if not f:
                     skipped.append((op, "no such field: %s.%s" % (key, op["field"])))
                     continue
-                edits.append((f.lead_start, f.end, ""))
+                edits.append((f.lead_start, f.end, "", op))
                 applied.append(op)
             elif op_name == "remove-entry":
                 e = live(key)
                 if not e:
                     skipped.append((op, "no such entry: %s" % key))
                     continue
-                edits.append(_remove_entry_edit(text, e))
+                edits.append(_remove_entry_edit(text, e) + (op,))
                 removed.add(key)
                 applied.append(op)
             elif op_name == "add-entry":
@@ -395,14 +395,26 @@ def apply(text, ops, warn=None):
                     skipped.append((op, "no such entry: %s" % key))
                     continue
                 block = _render_entry(key, op["value"], fs, warn)
-                edits.append((e.start, e.close_pos + 1, block))
+                edits.append((e.start, e.close_pos + 1, block, op))
                 applied.append(op)
             else:
                 skipped.append((op, "unknown op: %r" % op_name))
         except (KeyError, ValueError) as ex:
             skipped.append((op, "malformed op: %s" % ex))
 
-    out = _apply_edits(text, edits)
+    # Resolve every edit against the original text; an op whose span overlaps an
+    # already-accepted edit in this batch is dropped (else the two corrupt each other --
+    # e.g. two `set`s on the same field, or remove+set).  dblplint never emits such pairs
+    # (it dedups by citekey:field), but hand/LLM op streams can.
+    out_edits, occupied = [], []
+    for s, e, r, op in edits:
+        if any(s < ae and a < e for a, ae in occupied):
+            applied.remove(op)
+            skipped.append((op, "overlaps an earlier edit in the same batch"))
+        else:
+            occupied.append((s, e))
+            out_edits.append((s, e, r))
+    out = _apply_edits(text, out_edits)
     if appends:
         nl = fs["newline"]
         if out and not out.endswith("\n"):
