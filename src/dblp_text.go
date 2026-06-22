@@ -361,7 +361,7 @@ func main() {
 
 	journals, confs, journalNames, lower, upper, err := loadConfig(*config)
 	if err != nil {
-		os.Stderr.WriteString("dblp(go): config '" + *config + "' not found (e.g., try `cp config{-se,}.yaml`)\n")
+		os.Stderr.WriteString("dblp(go): config '" + *config + "' not found (e.g., try `cp config/sample-se.yaml config/default.yaml`)\n")
 		os.Exit(1)
 	}
 	if len(journals) == 0 && len(confs) == 0 {

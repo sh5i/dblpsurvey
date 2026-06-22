@@ -160,7 +160,8 @@ def main():
 
     cfg = load_config(args.config)
     if cfg is None:
-        sys.exit("dblp_text.py: config '%s' not found (e.g., try `cp config{-se,}.yaml`)" % args.config)
+        sys.exit("dblp_text.py: config '%s' not found "
+                 "(e.g., try `cp config/sample-se.yaml config/default.yaml`)" % args.config)
     journals, confs, journal_names, lower, upper = cfg
     # A "*" entry passes every venue of that kind (no filtering); see sample-all.yaml.
     if not journals and not confs:
