@@ -1,6 +1,12 @@
 .PHONY: all install update clean distclean test
 .DELETE_ON_ERROR:
 
+# Recipes are pipelines (gunzip | extractor | sqlite3); without pipefail a crashing
+# extractor is masked by sqlite3's exit 0, leaving a silently half-built DB.  bash is a
+# stated prerequisite.
+SHELL := bash
+.SHELLFLAGS := -o pipefail -c
+
 # Extractor: go (fast, default) or python (readable reference, easy to hack on).
 # Both share the same I/O: stdin XML -> stdout text, flags --color/--config/--dtd.
 EXTRACTOR ?= go
