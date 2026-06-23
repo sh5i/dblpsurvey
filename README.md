@@ -22,7 +22,7 @@ Behind `dblpsurvey -i` / `dblplint --apply` sits `bibgraft`, a convention-preser
 
 - Basic commands: `bash`, `curl`, `gzip`, `gunzip`, `realpath`, `sed`, and `make`
 - to build the text database, either:
-  - [Go](https://go.dev/) — the default, faster extractor (`make`; reads its config with `gopkg.in/yaml.v3`, fetched and pinned via go.mod on first build), or
+  - [Go](https://go.dev/) — the default, faster extractor (`make`; reads its config with `go.yaml.in/yaml/v3`, fetched and pinned via go.mod on first build), or
   - Python 3 — the reference extractor (`make EXTRACTOR=python`; reads its config with the vendored PyYAML submodule, pulled in by the `--recurse-submodules` clone below)
 - for the SQLite database: the [`sqlite3`](https://sqlite.org/) CLI (with FTS5) and Python 3 (the conference-name post-pass `dblp_confname.py`, standard library only)
 - for the `.bib` tools (`dblplint`, `dblpcite`): Python 3 (standard library only). Their insert/apply path also uses a vendored copy of `bibtexparser` — a git submodule, pulled in by the `--recurse-submodules` clone below (or `git submodule update --init`; `make test` fetches it too).

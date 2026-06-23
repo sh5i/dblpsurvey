@@ -17,7 +17,7 @@ import (
 	"strings"
 	"sync"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 const (
@@ -291,7 +291,7 @@ func extract(record string) (entry, bool) {
 	return entry{year, ref, out}, true
 }
 
-// loadConfig reads the preference YAML with gopkg.in/yaml.v3: which journals/conferences
+// loadConfig reads the preference YAML with go.yaml.in/yaml/v3: which journals/conferences
 // and which year range survive.  Returns an error when the file can't be read or isn't a
 // YAML mapping, so the caller can report it as missing.  Mirrors dblp_text.py's load_config.
 func loadConfig(path string) (journals, confs map[string]bool, journalNames map[string]string, lower, upper int, err error) {
