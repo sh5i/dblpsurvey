@@ -66,4 +66,10 @@ grep -q "journals/xx/Unwanted10" "$TMP/py.all" || fail "wildcard: off-list venue
 if $PY --format=sql --config=/dev/null --dtd="$DTD" < "$FIX" >/dev/null 2>&1; then fail "fail-fast: python accepted an empty config"; fi
 if $GO --format=sql --config=/dev/null --dtd="$DTD" < "$FIX" >/dev/null 2>&1; then fail "fail-fast: go accepted an empty config"; fi
 
+# 5b. malformed shape: a scalar where a list is expected (`journals: tse`, no `- `) must error
+#     on BOTH extractors -- not be silently misread (python used to iterate the scalar's chars).
+SCALAR=$TMP/scalar.yaml; printf 'journals: tse\n' > "$SCALAR"
+if $PY --format=sql --config="$SCALAR" --dtd="$DTD" < "$FIX" >/dev/null 2>&1; then fail "fail-fast: python accepted a scalar journals:"; fi
+if $GO --format=sql --config="$SCALAR" --dtd="$DTD" < "$FIX" >/dev/null 2>&1; then fail "fail-fast: go accepted a scalar journals:"; fi
+
 echo "PASS: text + sql agree; db builds and queries (title_norm, fts, ee, proceedings join, conf_name, journal join); wildcard + fail-fast"

@@ -132,11 +132,16 @@ def load_config(path):
         return None
     if not isinstance(config, dict):
         return None
-    journals = set(config.get('journals') or [])
-    confs = set(config.get('conferences') or [])
-    journal_names = dict(config.get('journal_names') or {})
+    journals = config.get('journals') or []
+    confs = config.get('conferences') or []
+    journal_names = config.get('journal_names') or {}
     year = config.get('year') or {}
-    return journals, confs, journal_names, year.get('lower', 1900), year.get('upper', 2100)
+    # Reject the wrong YAML shape (e.g. `journals: tse` instead of a list) so it fails like
+    # the Go sibling, rather than silently iterating a scalar's characters as venue ids.
+    if not (isinstance(journals, list) and isinstance(confs, list)
+            and isinstance(journal_names, dict) and isinstance(year, dict)):
+        return None
+    return set(journals), set(confs), dict(journal_names), year.get('lower', 1900), year.get('upper', 2100)
 
 
 def reference_of(fields):
