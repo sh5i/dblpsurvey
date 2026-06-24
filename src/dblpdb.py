@@ -195,6 +195,8 @@ class Db:
     def by_doi(self, doi):
         """Fallback lookup by DOI (when the title doesn't match): try the indexed doi
         column first, then any electronic-edition link in `ee`."""
+        if not doi:                       # else the ee fallback becomes LIKE '%%' (matches all)
+            return [], []
         rows = self.con.execute(
             "SELECT * FROM entries WHERE doi = 'https://doi.org/' || ?", (doi,)).fetchall()
         if not rows:
@@ -206,6 +208,8 @@ class Db:
     def by_arxiv(self, axid):
         """Find the DBLP CoRR (arXiv) record for an arXiv id, via its ee link.  Lets us
         match even when the arXiv title changed across versions (always preprints)."""
+        if not axid:                      # else LIKE '%%' matches every corr record
+            return [], []
         rows = self.con.execute("SELECT * FROM entries WHERE venue='corr' AND "
                                 "ee LIKE '%' || ? || '%' ESCAPE '\\'",
                                 (like_escape(axid),)).fetchall()

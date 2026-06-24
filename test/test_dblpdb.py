@@ -115,6 +115,11 @@ class DbLookups(unittest.TestCase):
         _, pre = self.db.by_arxiv("2001.00001")
         self.assertEqual([e.key for e in pre], ["journals/corr/abs-2001-00001"])
 
+    def test_empty_id_lookups_match_nothing(self):
+        # an empty doi/arxiv id must not degrade to LIKE '%%' and match every ee'd row.
+        self.assertEqual(self.db.by_doi(""), ([], []))
+        self.assertEqual(self.db.by_arxiv(""), ([], []))
+
     def test_fuzzy(self):
         keys = [r["key"] for r in self.db.fuzzy("Static Analysis Concurrency")]
         self.assertIn("journals/tse/Art21", keys)
