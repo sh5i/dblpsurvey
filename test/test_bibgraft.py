@@ -255,6 +255,28 @@ class Robustness(unittest.TestCase):
         self.assertNotIn("journal", out)                   # removed, not half-set
         self.assertIn("Smith2020", out)                    # rest intact
 
+    def test_remove_last_field_plus_insert_no_double_comma(self):
+        # removing the LAST field + adding a new one: the insert lands on the removal's
+        # edge; it must be skipped, not produce a corrupt double comma ("{X},,").
+        src = "@article{A,\n  author = {X},\n  year = {2020}\n}\n"
+        out, applied, skipped = bg.apply(src, [{"op": "remove", "key": "A", "field": "year"},
+                                               {"op": "set", "key": "A", "field": "zzz", "value": "b"}])
+        self.assertEqual(len(applied), 1)                  # only the remove
+        self.assertTrue(any("overlap" in r for _, r in skipped))
+        self.assertNotIn(",,", out)                        # no double comma
+        self.assertNotIn("year", out)
+
+    def test_set_last_value_plus_add_field_both_apply(self):
+        # the legit neighbour of the above: rewriting the last field's VALUE is not
+        # destructive, so adding a new field right after it must STILL apply (not be skipped).
+        src = "@article{B,\n  author = {X},\n  year = {2020}\n}\n"
+        out, applied, skipped = bg.apply(src, [{"op": "set", "key": "B", "field": "year", "value": "2021"},
+                                               {"op": "set", "key": "B", "field": "doi", "value": "10.1/x"}])
+        self.assertEqual(len(applied), 2)                  # both applied
+        self.assertEqual(skipped, [])
+        self.assertIn("year = {2021}", out)
+        self.assertIn("doi = {10.1/x}", out)
+
 
 if __name__ == "__main__":
     unittest.main()

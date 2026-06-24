@@ -402,17 +402,29 @@ def apply(text, ops, warn=None):
         except (KeyError, ValueError) as ex:
             skipped.append((op, "malformed op: %s" % ex))
 
-    # Resolve every edit against the original text; an op whose span overlaps an
-    # already-accepted edit in this batch is dropped (else the two corrupt each other --
-    # e.g. two `set`s on the same field, or remove+set).  dblplint never emits such pairs
-    # (it dedups by citekey:field), but hand/LLM op streams can.
-    out_edits, occupied = [], []
+    # Resolve every edit against the original text; an op that conflicts with an
+    # already-accepted edit in this batch is dropped (else the two corrupt each other).
+    # Two real spans conflict when they overlap (half-open).  A zero-width insertion
+    # conflicts with a *destructive* edit (remove/remove-entry) when it lands anywhere on
+    # that edit's CLOSED span -- including the boundary, where the insertion's comma fix-up
+    # would collide with the deleted field (a value-`set`, which only rewrites a value span,
+    # is not destructive, so an insertion right after it is fine).  dblplint never emits such
+    # pairs (it dedups by citekey:field), but hand/LLM op streams can.
+    out_edits, occupied = [], []          # occupied: (start, end, is_destructive)
     for s, e, r, op in edits:
-        if any(s < ae and a < e for a, ae in occupied):
+        destructive = op.get("op") in ("remove", "remove-entry")
+        conflict = False
+        for a, b, b_destructive in occupied:
+            if (s < b and a < e                                    # spans overlap
+                    or (s == e and b_destructive and a <= s <= b)  # insert on a deletion's edge
+                    or (a == b and destructive and s <= a <= e)):  # deletion over an insert
+                conflict = True
+                break
+        if conflict:
             applied.remove(op)
             skipped.append((op, "overlaps an earlier edit in the same batch"))
         else:
-            occupied.append((s, e))
+            occupied.append((s, e, destructive))
             out_edits.append((s, e, r))
     out = _apply_edits(text, out_edits)
     if appends:
