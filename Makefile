@@ -45,7 +45,7 @@ update:
 	-rm data/dblp.xml.gz.0
 
 clean:
-	rm -f data/dblp_filtered.xml.gz data/*.txt.gz data/*.db build/dblp2text
+	rm -f data/*.txt.gz data/*.db build/dblp2text
 
 distclean: clean
 	rm -f data/dblp.xml.gz data/dblp.xml.gz.0 data/dblp.dtd
