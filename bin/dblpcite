@@ -3,12 +3,13 @@
 layer; not a linter -- it neither reads nor edits a .bib).
 
 Reads keys on stdin -- one per line, or dblpsurvey output lines whose leading `(key)` is
-used -- and prints a BibTeX entry for each, under a generated <Family><Year> citation key:
+used -- and prints a BibTeX entry for each, keyed by the DBLP key verbatim:
 
   dblpsurvey deep learning | dblpcite | bibgraft refs.bib --insert
 
 The DB is chosen by --profile (data/<profile>.db, default 'default') or --db PATH.  A key
-not in the DB is skipped with a note on stderr.
+not in the DB is skipped with a note on stderr.  Field values are escaped to LaTeX macros by
+default (for (u)pLaTeX / legacy bibtex); --utf8 emits raw UTF-8 instead (see dblpdb.to_latex).
 """
 
 import argparse
@@ -42,6 +43,8 @@ def main():
     ap.add_argument("--db", default=None, help="explicit path to a dblp.db (overrides --profile)")
     ap.add_argument("--short", action="store_true",
                     help="use the short venue form (a journal's abbreviation / 'Proc. {ACRONYM}')")
+    ap.add_argument("--utf8", action="store_true",
+                    help="emit raw UTF-8 field values (default: escape non-ASCII to LaTeX macros)")
     args = ap.parse_args()
 
     db_path = args.db or os.path.join(_ROOT, "data", args.profile + ".db")
@@ -53,7 +56,9 @@ def main():
     con.row_factory = sqlite3.Row
     db = Db(con)
 
-    seen, out = set(), []
+    latex = not args.utf8
+    seen, out, unmapped = set(), [], set()
+    warn = unmapped.add if latex else None
     for line in sys.stdin:
         key = _key(line)
         if not key or key in seen:        # DBLP keys are unique; drop repeated inputs
@@ -63,9 +68,13 @@ def main():
         if rec is None:
             sys.stderr.write("dblpcite: not in DB, skipped: %s\n" % key)
             continue
-        out.append(rec.to_bibtex(rec.key, args.short))   # citekey = the DBLP key, verbatim
+        # citekey = the DBLP key, verbatim
+        out.append(rec.to_bibtex(rec.key, args.short, latex=latex, warn=warn))
     if out:
         sys.stdout.write("\n\n".join(out) + "\n")
+    if unmapped:
+        sys.stderr.write("dblpcite: %d non-ASCII char(s) had no portable LaTeX macro, left as "
+                         "UTF-8: %s\n" % (len(unmapped), " ".join(sorted(unmapped))))
     return 0
 
 

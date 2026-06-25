@@ -16,6 +16,8 @@ All CLIs live in `bin/`.
 - **`dblplint`** — check and fix an existing `.bib` against DBLP, offline: correct author/year/pages/volume, fill missing fields, normalise venue names, swap an arXiv preprint for its published version — `git add -p`-style select-then-apply.
 - **`dblpcite`** — turn DBLP keys into BibTeX entries (the bridge `dblpsurvey -i` uses; also composable on its own).
 
+Non-ASCII field values (accented author names, …) are escaped to LaTeX macros by default — the portable form for (u)pLaTeX / legacy bibtex; pass `--utf8` (to `dblpcite` or `dblplint`) for raw UTF-8 instead.  DBLP author names are entirely Latin and round-trip completely; Greek/maths characters in titles have no portable macro and are left as UTF-8 (and reported).  The escapes assume `\usepackage[T1]{fontenc}`.
+
 Behind `dblpsurvey -i` / `dblplint --apply` sits `bibgraft`, a convention-preserving, minimal-diff `.bib` editor that inserts/edits entries in your file's own layout.
 
 ## Prerequisites

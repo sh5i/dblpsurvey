@@ -52,6 +52,9 @@ def build_db(path):
                authors="Eve Adams", title="Neural Methods for Program Repair",
                booktitle="ICSE", pages="1-10", doi="https://doi.org/10.1/icse21",
                ee="https://doi.org/10.1/icse21", crossref="conf/icse/2020")
+    _ins_entry(con, key="conf/icse/Accent20", type="inproceedings", venue="icse", year=2020,
+               authors="Heiko Müller, André Çağrı", title="A LaTeX Escaping Case",
+               booktitle="ICSE", pages="1--2", crossref="conf/icse/2020")
     con.execute("INSERT INTO fts(key,title,authors) SELECT key,title,authors FROM entries")
     con.commit()
     return con
@@ -315,6 +318,28 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(missing, ["p:nope"])
         self.assertIn("(ICSE 2020)", new)
         self.assertNotIn("153--156", new)            # pages fill was NOT selected
+
+    def test_apply_latex_escape_default_and_utf8(self):
+        text = ("@inproceedings{conf/icse/Accent20,\n title={A LaTeX Escaping Case},\n"
+                " booktitle={ICSE},\n year={2020}\n}")
+        aid = "conf/icse/Accent20:author"
+        esc, applied, _ = bc._apply_ids(text, self.finding(text)["proposals"], [aid])  # default
+        self.assertIn(bc.to_latex("Heiko Müller and André Çağrı"), esc)
+        raw, _, _ = bc._apply_ids(text, self.finding(text)["proposals"], [aid], latex=False)
+        self.assertIn("Heiko Müller and André Çağrı", raw)                             # --utf8
+        # idempotent: the escaped form folds equal to DBLP, so no further author proposal
+        self.assertNotIn(aid, [p["id"] for p in self.finding(esc)["proposals"]])
+
+    def test_dblpcite_escapes_by_default_utf8_opts_out(self):
+        import subprocess
+        cite = os.path.join(ROOT, "bin", "dblpcite")
+        db = os.path.join(self.tmp, "fixture.db")
+        r = subprocess.run([cite, "--db", db], input="conf/icse/Accent20\n",
+                           capture_output=True, text=True)
+        self.assertIn(r'M{\"{u}}ller', r.stdout)               # default: escaped
+        r2 = subprocess.run([cite, "--db", db, "--utf8"], input="conf/icse/Accent20\n",
+                            capture_output=True, text=True)
+        self.assertIn("Müller", r2.stdout)                     # --utf8: raw
 
     def test_apply_safe_skips_venue_and_review(self):
         text = ("@article{a,\n author={Carol Lee},\n"             # author -> review (subset)

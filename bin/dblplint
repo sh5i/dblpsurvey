@@ -60,7 +60,7 @@ sys.path.insert(0, _SRC)
 # light, stdlib-only sibling -> import it eagerly.  bibspan/bibgraft (which pull in the
 # vendored submodule) stay lazy via _sibling, so `--help` / the no-db skip cost nothing.
 from dblpdb import (Db, norm_title, norm_pages, fmt_pages, authors_to_bib,  # noqa: E402
-                    strip_doi, _delatex, _fold, _vn)
+                    strip_doi, to_latex, _delatex, _fold, _vn)
 
 
 def _sibling(name):
@@ -617,20 +617,31 @@ def _bulk_ids(mode, findings, safe):
         return []
     return [p["id"] for p in cands] if mode == "all" else _pick(cands, findings)
 
-def _apply_ids(text, props, ids):
+def _apply_ids(text, props, ids, latex=True, warn=None):
     """Apply the proposals named by `ids` via bibgraft (it re-resolves positions from
     key/field and renders changes in the file's own conventions). Returns (new_text,
     applied, missing). If a whole-entry upgrade is chosen, its field-level siblings are
-    dropped (they'd conflict)."""
+    dropped (they'd conflict).  With `latex` (the default) the DBLP-derived value is escaped
+    to LaTeX macros at the write point -- the report shows the readable form, the file gets
+    the portable one; folding makes this idempotent (M\\"uller and Müller re-match)."""
     pmap = {p["id"]: p for p in props}
     chosen = [pmap[i] for i in ids if i in pmap]
     missing = [i for i in ids if i not in pmap]
     replaced = {p["id"].rsplit(":", 1)[0] for p in chosen if p["op"] == "replace"}
     chosen = [p for p in chosen
               if p["op"] == "replace" or p["id"].rsplit(":", 1)[0] not in replaced]
-    new_text, done, _ = _sibling("bibgraft").apply(text, [p["op_bib"] for p in chosen])
-    applied = {id(o) for o in done}                  # bibgraft returns our op dicts verbatim
-    return new_text, [p for p in chosen if id(p["op_bib"]) in applied], missing
+    # Escape the DBLP value to LaTeX at the write point (default).  The value is copied, not
+    # mutated, so the proposal's readable form survives; ASCII passes through, so this is safe
+    # for both a `set` value and a whole `replace-entry` block.
+    ops = []
+    for p in chosen:
+        o = p["op_bib"]
+        if latex and "value" in o:
+            o = dict(o, value=to_latex(o["value"], warn))
+        ops.append((o, p))
+    new_text, done, _ = _sibling("bibgraft").apply(text, [o for o, _ in ops])
+    done_ids = {id(o) for o in done}                 # bibgraft returns our op dicts verbatim
+    return new_text, [p for o, p in ops if id(o) in done_ids], missing
 
 def cmd_oneline(findings, safe, color):
     """Flat one-proposal-per-line view: the same proposal lines as the report (op, field,
@@ -662,7 +673,8 @@ def _write_or_echo(text, applied, bib, dry_run):
         with open(bib, "w", encoding="utf-8") as f:
             f.write(text)
 
-def cmd_apply(db, entries, text, short, mode, safe, bib, dry_run, color, selectors=()):
+def cmd_apply(db, entries, text, short, mode, safe, bib, dry_run, color, selectors=(),
+              latex=True, warn=None):
     """Accept proposals.  mode: 'interactive' (pick via fzf/peco), 'stdin' (ids piped in), or
     'all' (every candidate).  Candidates are non-suppressed (and, with `safe`, only non-review);
     an id named via stdin still applies even if it is suppressed (explicit overrides ignore)."""
@@ -683,7 +695,7 @@ def cmd_apply(db, entries, text, short, mode, safe, bib, dry_run, color, selecto
         if not ids:
             print(c.dim("nothing to apply"), file=log)
             return 0
-    new_text, applied, missing = _apply_ids(text, props, ids)
+    new_text, applied, missing = _apply_ids(text, props, ids, latex, warn)
     for p in applied:
         print(c.green("✓ %s" % p["id"]), file=log)
     for m in missing:
@@ -814,6 +826,9 @@ def main():
                     help="prefer the short venue form (a journal's abbreviation, a "
                          "conference's 'Proc. {ACRONYM}') instead of the full official name; "
                          "venue proposals then offer shortening rather than expansion")
+    ap.add_argument("--utf8", action="store_true",
+                    help="when applying, write raw UTF-8 field values (default: escape non-ASCII "
+                         "to LaTeX macros for (u)pLaTeX / legacy bibtex)")
     ap.add_argument("-n", "--dry-run", action="store_true",
                     help="with --apply/--mute, write the result to stdout instead of the file")
     ap.add_argument("--ignore", action="append", default=[], metavar="SEL",
@@ -871,8 +886,13 @@ def main():
     if args.oneline:
         return cmd_oneline(derive(db, entries, args.short, selectors), args.safe, color)
     if args.apply is not None:
-        return cmd_apply(db, entries, text, args.short, args.apply, args.safe, args.bib,
-                         args.dry_run, color, selectors)
+        unmapped = set()
+        rc = cmd_apply(db, entries, text, args.short, args.apply, args.safe, args.bib,
+                       args.dry_run, color, selectors, latex=not args.utf8, warn=unmapped.add)
+        if unmapped:
+            sys.stderr.write("dblplint: %d non-ASCII char(s) had no portable LaTeX macro, left "
+                             "as UTF-8: %s\n" % (len(unmapped), " ".join(sorted(unmapped))))
+        return rc
     if args.mute is not None:
         return cmd_mute(db, entries, text, args.short, args.mute, args.safe, args.bib,
                         args.dry_run, selectors, color)
