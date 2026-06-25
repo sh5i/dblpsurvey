@@ -1,33 +1,33 @@
 <?xml version="1.0"?>
 <!DOCTYPE dblp SYSTEM "test.dtd">
 <dblp>
-<article mdate="2020-01-01" key="journals/tse/MuellerA14">
-<author>Heiko M&auml;ller</author>
-<author>A. &Aacute;lvarez</author>
+<article mdate="2020-01-01" key="journals/jes/BaeckerA14">
+<author>Example &auml;uthor</author>
+<author>Sample &Aacute;uthor</author>
 <title>On H<sub>2</sub>O &amp; <i>refactoring</i>.</title>
-<journal>IEEE Trans. Software Eng.</journal>
+<journal>J. Example Stud.</journal>
 <volume>40</volume>
 <number>3</number>
 <pages>1-10</pages>
 <year>2014</year>
 <ee>https://example.org/x</ee>
 <ee>https://doi.org/10.1/late</ee>
-</article><inproceedings mdate="2019-01-01" key="conf/icse/SmithB01"><author>Jane Smith</author>
+</article><inproceedings mdate="2019-01-01" key="conf/icet/SmithB01"><author>Jane Smith</author>
 <title>Hello world.</title>
-<booktitle>ICSE</booktitle>
+<booktitle>ICET</booktitle>
 <pages>5-9</pages>
 <year>2001</year>
 <ee>https://example.org/only</ee>
-<crossref>conf/icse/2001</crossref>
-</inproceedings><proceedings mdate="2024-01-01" key="conf/icse/2001">
+<crossref>conf/icet/2001</crossref>
+</inproceedings><proceedings mdate="2024-01-01" key="conf/icet/2001">
 <editor>Some Editor</editor>
-<title>Proceedings of the 23rd International Conference on Software Engineering, ICSE 2001, Toronto, Ontario, Canada, May 12-19, 2001</title>
-<booktitle>ICSE</booktitle>
-<publisher>IEEE Computer Society</publisher>
+<title>Proceedings of the 23rd International Conference on Example Topics, ICET 2001, Sometown, Someprov, Somewhere, May 12-19, 2001</title>
+<booktitle>ICET</booktitle>
+<publisher>Example Press</publisher>
 <year>2001</year>
 <isbn>0-7695-1050-7</isbn>
-<ee>https://doi.org/10.1109/ICSE.2001.919076</ee>
-<url>db/conf/icse/icse2001.html</url>
+<ee>https://doi.org/10.5555/ICET.2001.000001</ee>
+<url>db/conf/icet/icet2001.html</url>
 </proceedings>
 <proceedings mdate="2026-01-01" key="journals/corr/absWS25">
 <editor>Ed Itor</editor>
@@ -37,26 +37,26 @@
 <ee>https://doi.org/10.4204/EPTCS.999</ee>
 <url>db/journals/corr/absWS25.html</url>
 </proceedings>
-<article mdate="2017-01-01" key="journals/tse/OldOne90">
+<article mdate="2017-01-01" key="journals/jes/OldOne90">
 <title>Too old to survive</title>
-<journal>IEEE Trans. Software Eng.</journal>
+<journal>J. Example Stud.</journal>
 <year>1990</year>
 </article>
 <article mdate="2016-01-01" key="journals/xx/Unwanted10">
 <title>Wrong venue</title>
 <year>2010</year>
 </article>
-<article mdate="2015-01-01" key="journals/tse/Koehler05">
-<author>P. K&ouml;hler</author>
+<article mdate="2015-01-01" key="journals/jes/Koester05">
+<author>Test &ouml;ther</author>
 <title>Query with ampersand</title>
-<journal>IEEE Trans. Software Eng.</journal>
+<journal>J. Example Stud.</journal>
 <year>2005</year>
 <ee>https://example.org/q?a=1&amp;b=2</ee>
 </article>
-<article mdate="2018-01-01" key="journals/tse/Cafe18">
-<author>Zoe Quinn</author>
+<article mdate="2018-01-01" key="journals/jes/Cafe18">
+<author>Zoe Carter</author>
 <title>Caf&#xe9; and &#9731; in titles</title>
-<journal>IEEE Trans. Software Eng.</journal>
+<journal>J. Example Stud.</journal>
 <volume>44</volume>
 <number>2</number>
 <pages>30-40</pages>

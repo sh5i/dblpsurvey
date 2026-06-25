@@ -623,7 +623,7 @@ def _apply_ids(text, props, ids, latex=True, warn=None):
     applied, missing). If a whole-entry upgrade is chosen, its field-level siblings are
     dropped (they'd conflict).  With `latex` (the default) the DBLP-derived value is escaped
     to LaTeX macros at the write point -- the report shows the readable form, the file gets
-    the portable one; folding makes this idempotent (M\\"uller and Müller re-match)."""
+    the portable one; folding makes this idempotent (H\\"ubner and Hübner re-match)."""
     pmap = {p["id"]: p for p in props}
     chosen = [pmap[i] for i in ids if i in pmap]
     missing = [i for i in ids if i not in pmap]

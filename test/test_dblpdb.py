@@ -27,29 +27,29 @@ def build_db():
     with open(os.path.join(ROOT, "src", "schema.sql"), encoding="utf-8") as fh:
         con.executescript(fh.read())
     con.execute("INSERT INTO journals(abbrev,full_name) VALUES (?,?)",
-                ("IEEE Trans. Software Eng.", "IEEE Transactions on Software Engineering"))
+                ("J. Example Stud.", "Journal of Example Studies"))
     con.execute("INSERT INTO proceedings(key,title,booktitle,year,kind,ordinal,conf_name,canonical) "
                 "VALUES (?,?,?,?,?,?,?,?)",
-                ("conf/icse/2020", "Proceedings ...", "ICSE", 2020, "main", 42,
-                 "International Conference on Software Engineering",
-                 "Proceedings of the 42nd International Conference on Software Engineering (ICSE 2020)"))
-    _ins(con, key="journals/tse/Art21", type="article", venue="tse", year=2021,
-         authors="Carol Lee 0001, Dan Park", title="Static Analysis for Concurrency Bugs",
-         journal="IEEE Trans. Software Eng.", volume="47", number="3", pages="200-220",
-         doi="https://doi.org/10.1/tse21", ee="https://doi.org/10.1/tse21")
-    _ins(con, key="conf/icse/Paper20", type="inproceedings", venue="icse", year=2020,
+                ("conf/icet/2020", "Proceedings ...", "ICET", 2020, "main", 42,
+                 "International Conference on Example Topics",
+                 "Proceedings of the 42nd International Conference on Example Topics (ICET 2020)"))
+    _ins(con, key="journals/jes/Art21", type="article", venue="jes", year=2021,
+         authors="Carol Lee 0001, Dan Park", title="Example Paper About Sample Topics",
+         journal="J. Example Stud.", volume="47", number="3", pages="200-220",
+         doi="https://doi.org/10.1/jes21", ee="https://doi.org/10.1/jes21")
+    _ins(con, key="conf/icet/Paper20", type="inproceedings", venue="icet", year=2020,
          authors="Alice B. Smith, Bob Jones", title="A Great Paper",
-         booktitle="ICSE", pages="100-110", crossref="conf/icse/2020")
+         booktitle="ICET", pages="100-110", crossref="conf/icet/2020")
     # two ee whose ids differ only at an underscore position -- exercises LIKE escaping.
     _ins(con, key="journals/x/Under", type="article", venue="x", year=2019,
          title="Underscore", ee="https://ex/10.1/a_c")
     _ins(con, key="journals/x/Other", type="article", venue="x", year=2019,
          title="Other", ee="https://ex/10.1/aXc")
     _ins(con, key="journals/corr/abs-2001-00001", type="article", venue="corr", year=2020,
-         authors="Eve Adams", title="Neural Methods", ee="https://arxiv.org/abs/2001.00001")
-    _ins(con, key="journals/tse/Accent20", type="article", venue="tse", year=2020,
-         authors="Heiko M\u00fcller, Andr\u00e9 \u00c7a\u011fr\u0131", title="\u00dcber \u03bb-Calculus",
-         journal="IEEE Trans. Software Eng.", volume="1", number="1", pages="1--2")
+         authors="Eve Adams", title="Example Methods", ee="https://arxiv.org/abs/2001.00001")
+    _ins(con, key="journals/jes/Accent20", type="article", venue="jes", year=2020,
+         authors="D\u00fcmmy \u00dcser, T\u00ebst \u00c7ase", title="\u00dcber Example \u03bb-Topics",
+         journal="J. Example Stud.", volume="1", number="1", pages="1--2")
     con.execute("INSERT INTO fts(key,title,authors) SELECT key,title,authors FROM entries")
     con.commit()
     return con
@@ -74,8 +74,8 @@ class Transforms(unittest.TestCase):
         self.assertEqual(dblpdb.fmt_pages(""), "")
 
     def test_authors_to_bib_strips_disambiguator(self):
-        self.assertEqual(dblpdb.authors_to_bib("Le Yu 0002, Xiapu Luo"),
-                         "Le Yu and Xiapu Luo")
+        self.assertEqual(dblpdb.authors_to_bib("Alice Tan 0002, Bob Rivera"),
+                         "Alice Tan and Bob Rivera")
 
     def test_strip_doi(self):
         self.assertEqual(dblpdb.strip_doi("https://doi.org/10.1/x"), "10.1/x")
@@ -97,17 +97,17 @@ class DbLookups(unittest.TestCase):
         self.db = dblpdb.Db(build_db())
 
     def test_by_key(self):
-        self.assertEqual(self.db.by_key("journals/tse/Art21").year, "2021")
+        self.assertEqual(self.db.by_key("journals/jes/Art21").year, "2021")
         self.assertIsNone(self.db.by_key("nope"))
 
     def test_by_title_normalised(self):
-        pub, pre = self.db.by_title("static analysis for concurrency bugs!!")
-        self.assertEqual([e.key for e in pub], ["journals/tse/Art21"])
+        pub, pre = self.db.by_title("example paper about sample topics!!")
+        self.assertEqual([e.key for e in pub], ["journals/jes/Art21"])
         self.assertEqual(pre, [])
 
     def test_by_doi_exact_and_ee_fallback(self):
-        pub, _ = self.db.by_doi("10.1/tse21")            # exact doi column
-        self.assertEqual([e.key for e in pub], ["journals/tse/Art21"])
+        pub, _ = self.db.by_doi("10.1/jes21")            # exact doi column
+        self.assertEqual([e.key for e in pub], ["journals/jes/Art21"])
 
     def test_by_doi_like_underscore_is_literal(self):
         # '_' must match literally (not as a LIKE single-char wildcard): only a_c, never aXc.
@@ -124,8 +124,8 @@ class DbLookups(unittest.TestCase):
         self.assertEqual(self.db.by_arxiv(""), ([], []))
 
     def test_fuzzy(self):
-        keys = [r["key"] for r in self.db.fuzzy("Static Analysis Concurrency")]
-        self.assertIn("journals/tse/Art21", keys)
+        keys = [r["key"] for r in self.db.fuzzy("Example Sample Topics")]
+        self.assertIn("journals/jes/Art21", keys)
 
 
 class EntrySerialisation(unittest.TestCase):
@@ -133,27 +133,27 @@ class EntrySerialisation(unittest.TestCase):
         self.db = dblpdb.Db(build_db())
 
     def test_venue_forms_article(self):
-        full, kind, _ff, _sf, short = self.db.by_key("journals/tse/Art21").venue_forms()
+        full, kind, _ff, _sf, short = self.db.by_key("journals/jes/Art21").venue_forms()
         self.assertEqual(kind, "journal")
-        self.assertEqual(full, "IEEE Transactions on Software Engineering")
-        self.assertEqual(short, "IEEE Trans. Software Eng.")
+        self.assertEqual(full, "Journal of Example Studies")
+        self.assertEqual(short, "J. Example Stud.")
 
     def test_venue_forms_inproceedings_via_crossref(self):
-        full, kind, _ff, _sf, _short = self.db.by_key("conf/icse/Paper20").venue_forms()
+        full, kind, _ff, _sf, _short = self.db.by_key("conf/icet/Paper20").venue_forms()
         self.assertEqual(kind, "main")
-        self.assertIn("International Conference on Software Engineering", full)
+        self.assertIn("International Conference on Example Topics", full)
 
     def test_to_bibtex_article(self):
-        out = self.db.by_key("journals/tse/Art21").to_bibtex("Lee2021")
+        out = self.db.by_key("journals/jes/Art21").to_bibtex("Lee2021")
         self.assertTrue(out.startswith("@article{Lee2021,"))
-        self.assertIn("journal = {IEEE Transactions on Software Engineering}", out)
+        self.assertIn("journal = {Journal of Example Studies}", out)
         self.assertIn("volume = {47}", out)
         self.assertIn("pages = {200--220}", out)        # range collapsed to house style
-        self.assertIn("doi = {10.1/tse21}", out)        # doi.org prefix stripped
+        self.assertIn("doi = {10.1/jes21}", out)        # doi.org prefix stripped
 
     def test_to_bibtex_inproceedings_uses_booktitle(self):
-        out = self.db.by_key("conf/icse/Paper20").to_bibtex("conf/icse/Paper20")
-        self.assertTrue(out.startswith("@inproceedings{conf/icse/Paper20,"))
+        out = self.db.by_key("conf/icet/Paper20").to_bibtex("conf/icet/Paper20")
+        self.assertTrue(out.startswith("@inproceedings{conf/icet/Paper20,"))
         self.assertIn("booktitle =", out)
         self.assertNotIn("journal =", out)
 
@@ -194,13 +194,13 @@ class LatexEscaping(unittest.TestCase):
 
     def test_author_surface_fully_maps_no_warn(self):
         # the closed Latin author surface must escape with NO warning (authors are complete).
-        names = "M\u00fcller Andr\u00e9 \u00c7a\u011fr\u0131 N\u00e6ss Fran\u00e7ois G\u00f6\u00dfling \u00de\u00f3r\u00f0ur Erik \u00d8st \u0141ukasz"
+        names = "\u00e9\u00e1\u00f6\u00ed\u00fc\u00f3\u00e4\u00e7\u00e3\u00f1\u00fa\u00e8 \u00f8\u00df\u00e6\u00d8\u00f0\u00de\u00d0\u00c6\u00fe"
         seen = []
         dblpdb.to_latex(names, warn=seen.append)
         self.assertEqual(seen, [])
 
     def test_to_bibtex_latex_escapes_values(self):
-        rec = self.db.by_key("journals/tse/Accent20")
+        rec = self.db.by_key("journals/jes/Accent20")
         seen = []
         out = rec.to_bibtex("k", latex=True, warn=seen.append)
         self.assertIn("author = {%s}" % dblpdb.to_latex(rec.authors_bib), out)
@@ -208,8 +208,8 @@ class LatexEscaping(unittest.TestCase):
         self.assertEqual(set(seen), {"\u03bb"})             # Greek in the title is left + warned
 
     def test_to_bibtex_default_is_utf8(self):
-        rec = self.db.by_key("journals/tse/Accent20")
-        self.assertIn("M\u00fcller", rec.to_bibtex("k"))    # default: raw UTF-8, no escaping
+        rec = self.db.by_key("journals/jes/Accent20")
+        self.assertIn("D\u00fcmmy", rec.to_bibtex("k"))    # default: raw UTF-8, no escaping
 
 
 if __name__ == "__main__":

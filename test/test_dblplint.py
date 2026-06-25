@@ -31,30 +31,30 @@ def build_db(path):
         con.executescript(fh.read())
     con.execute("INSERT INTO proceedings(key,title,booktitle,year,kind,ordinal,conf_name,canonical) "
                 "VALUES (?,?,?,?,?,?,?,?)",
-                ("conf/icse/2020", "Proceedings ...", "ICSE", 2020, "main", 42,
-                 "International Conference on Software Engineering",
-                 "Proceedings of the 42nd International Conference on Software Engineering (ICSE 2020)"))
+                ("conf/icet/2020", "Proceedings ...", "ICET", 2020, "main", 42,
+                 "International Conference on Example Topics",
+                 "Proceedings of the 42nd International Conference on Example Topics (ICET 2020)"))
     con.execute("INSERT INTO journals(abbrev,full_name) VALUES (?,?)",
-                ("IEEE Trans. Software Eng.", "IEEE Transactions on Software Engineering"))
-    _ins_entry(con, key="conf/icse/Paper20", type="inproceedings", venue="icse", year=2020,
-               authors="Alice B. Smith, Bob Jones", title="A Great Paper on Software Testing",
-               booktitle="ICSE", pages="100-110", doi="https://doi.org/10.1/icse20",
-               ee="https://doi.org/10.1/icse20", crossref="conf/icse/2020")
-    _ins_entry(con, key="journals/tse/Art21", type="article", venue="tse", year=2021,
-               authors="Carol Lee 0001, Dan Park", title="Static Analysis for Concurrency Bugs",
-               journal="IEEE Trans. Software Eng.", volume="47", number="3", pages="200-220",
-               doi="https://doi.org/10.1/tse21", ee="https://doi.org/10.1/tse21")
+                ("J. Example Stud.", "Journal of Example Studies"))
+    _ins_entry(con, key="conf/icet/Paper20", type="inproceedings", venue="icet", year=2020,
+               authors="Alice B. Smith, Bob Jones", title="Yet Another Example Paper",
+               booktitle="ICET", pages="100-110", doi="https://doi.org/10.1/icet20",
+               ee="https://doi.org/10.1/icet20", crossref="conf/icet/2020")
+    _ins_entry(con, key="journals/jes/Art21", type="article", venue="jes", year=2021,
+               authors="Carol Lee 0001, Dan Park", title="Example Paper About Sample Topics",
+               journal="J. Example Stud.", volume="47", number="3", pages="200-220",
+               doi="https://doi.org/10.1/jes21", ee="https://doi.org/10.1/jes21")
     # an arXiv preprint and its published sibling (same normalized title) for upgrade tests
     _ins_entry(con, key="journals/corr/abs-2001-00001", type="article", venue="corr", year=2020,
-               authors="Eve Adams", title="Neural Methods for Program Repair",
+               authors="Eve Adams", title="Example Methods for Sample Tasks",
                journal="CoRR", volume="abs/2001.00001", ee="https://arxiv.org/abs/2001.00001")
-    _ins_entry(con, key="conf/icse/Pub21", type="inproceedings", venue="icse", year=2021,
-               authors="Eve Adams", title="Neural Methods for Program Repair",
-               booktitle="ICSE", pages="1-10", doi="https://doi.org/10.1/icse21",
-               ee="https://doi.org/10.1/icse21", crossref="conf/icse/2020")
-    _ins_entry(con, key="conf/icse/Accent20", type="inproceedings", venue="icse", year=2020,
-               authors="Heiko Müller, André Çağrı", title="A LaTeX Escaping Case",
-               booktitle="ICSE", pages="1--2", crossref="conf/icse/2020")
+    _ins_entry(con, key="conf/icet/Pub21", type="inproceedings", venue="icet", year=2021,
+               authors="Eve Adams", title="Example Methods for Sample Tasks",
+               booktitle="ICET", pages="1-10", doi="https://doi.org/10.1/icet21",
+               ee="https://doi.org/10.1/icet21", crossref="conf/icet/2020")
+    _ins_entry(con, key="conf/icet/Accent20", type="inproceedings", venue="icet", year=2020,
+               authors="Dümmy Üser, Tëst Çase", title="A LaTeX Escaping Case",
+               booktitle="ICET", pages="1--2", crossref="conf/icet/2020")
     con.execute("INSERT INTO fts(key,title,authors) SELECT key,title,authors FROM entries")
     con.commit()
     return con
@@ -71,7 +71,7 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(bc.fmt_pages("5"), "5")             # single page kept as-is
 
     def test_authors_to_bib(self):
-        self.assertEqual(bc.authors_to_bib("Le Yu 0002, Xiapu Luo"), "Le Yu and Xiapu Luo")
+        self.assertEqual(bc.authors_to_bib("Alice Tan 0002, Bob Rivera"), "Alice Tan and Bob Rivera")
 
     def test_strip_doi(self):
         self.assertEqual(bc.strip_doi("https://doi.org/10.1/x"), "10.1/x")
@@ -187,9 +187,9 @@ class CheckTests(unittest.TestCase):
         import subprocess
         cite = os.path.join(ROOT, "bin", "dblpcite")
         db = os.path.join(self.tmp, "fixture.db")
-        r = subprocess.run([cite, "--db", db], input="(conf/icse/Paper20) Alice ...\n",
+        r = subprocess.run([cite, "--db", db], input="(conf/icet/Paper20) Alice ...\n",
                            capture_output=True, text=True)
-        self.assertIn("@inproceedings{conf/icse/Paper20,", r.stdout)   # citekey = DBLP key
+        self.assertIn("@inproceedings{conf/icet/Paper20,", r.stdout)   # citekey = DBLP key
         self.assertIn("booktitle", r.stdout)
         # a key absent from the DB is skipped (noted on stderr), not emitted
         r = subprocess.run([cite, "--db", db], input="nope/x/Y\n", capture_output=True, text=True)
@@ -199,17 +199,17 @@ class CheckTests(unittest.TestCase):
     def test_ok(self):
         f = self.finding(
             "@inproceedings{p,\n author={Alice B. Smith and Bob Jones},\n"
-            " title={A Great Paper on Software Testing},\n"
-            " booktitle={International Conference on Software Engineering},\n"
-            " pages={100--110},\n doi={10.1/icse20},\n year={2020}\n}")
+            " title={Yet Another Example Paper},\n"
+            " booktitle={International Conference on Example Topics},\n"
+            " pages={100--110},\n doi={10.1/icet20},\n year={2020}\n}")
         self.assertEqual(f["status"], "ok")
         self.assertEqual(f["proposals"], [])
 
     def test_adds_are_proposals(self):
         f = self.finding(
             "@inproceedings{p,\n author={Alice B. Smith and Bob Jones},\n"
-            " title={A Great Paper on Software Testing},\n"
-            " booktitle={International Conference on Software Engineering},\n year={2020}\n}")
+            " title={Yet Another Example Paper},\n"
+            " booktitle={International Conference on Example Topics},\n year={2020}\n}")
         self.assertEqual(f["status"], "incomplete")
         self.assertEqual({k: p["op"] for k, p in self.by_field(f).items()},
                          {"pages": "add", "doi": "add"})
@@ -217,8 +217,8 @@ class CheckTests(unittest.TestCase):
     def test_mismatch_year_is_an_edit(self):
         f = self.finding(
             "@article{a,\n author={Carol Lee and Dan Park},\n"
-            " title={Static Analysis for Concurrency Bugs},\n"
-            " journal={IEEE Trans. Software Eng.},\n volume={47},\n number={3},\n"
+            " title={Example Paper About Sample Topics},\n"
+            " journal={J. Example Stud.},\n volume={47},\n number={3},\n"
             " pages={200--220},\n year={2019}\n}")
         self.assertEqual(f["status"], "mismatch")
         yr = self.by_field(f)["year"]
@@ -228,105 +228,105 @@ class CheckTests(unittest.TestCase):
     def test_venue_diff_is_a_proposal(self):
         f = self.finding(
             "@inproceedings{p,\n author={Alice B. Smith and Bob Jones},\n"
-            " title={A Great Paper on Software Testing},\n booktitle={Some Wrong Venue},\n"
-            " pages={100--110},\n doi={10.1/icse20},\n year={2020}\n}")
+            " title={Yet Another Example Paper},\n booktitle={Some Wrong Venue},\n"
+            " pages={100--110},\n doi={10.1/icet20},\n year={2020}\n}")
         self.assertEqual(f["status"], "review")
         bk = self.by_field(f)["booktitle"]
         self.assertEqual((bk["op"], bk["review"]), ("edit", True))   # venue diff = a review-edit
-        self.assertIn("(ICSE 2020)", bk["dblp"])
+        self.assertIn("(ICET 2020)", bk["dblp"])
 
     def test_venue_short_form(self):
         f = self.finding(
-            "@inproceedings{p,\n title={A Great Paper on Software Testing},\n"
+            "@inproceedings{p,\n title={Yet Another Example Paper},\n"
             " booktitle={Some Wrong Venue},\n year={2020}\n}", short=True)
-        self.assertEqual(self.by_field(f)["booktitle"]["dblp"], "Proc. {ICSE}")
+        self.assertEqual(self.by_field(f)["booktitle"]["dblp"], "Proc. {ICET}")
 
-    FULL_TSE = "IEEE Transactions on Software Engineering"
-    ABBR_TSE = "IEEE Trans. Software Eng."
+    FULL_JES = "Journal of Example Studies"
+    ABBR_JES = "J. Example Stud."
 
     def _article(self, journal_line, short=False):
         return self.finding(
             "@article{a,\n author={Carol Lee and Dan Park},\n"
-            " title={Static Analysis for Concurrency Bugs},\n"
+            " title={Example Paper About Sample Topics},\n"
             " %s\n volume={47},\n number={3},\n pages={200--220},\n"
-            " doi={10.1/tse21},\n year={2021}\n}" % journal_line, short)
+            " doi={10.1/jes21},\n year={2021}\n}" % journal_line, short)
 
     def test_journal_full_name_accepted_default(self):
         # Default mode prefers the full title; an entry already using it is OK.
-        f = self._article("journal={%s}," % self.FULL_TSE)
+        f = self._article("journal={%s}," % self.FULL_JES)
         self.assertEqual(f["status"], "ok")
         self.assertNotIn("journal", self.by_field(f))
 
     def test_journal_abbrev_proposed_for_expansion(self):
         # Default mode: the abbreviation is offered EXPANSION to the full title (review).
-        j = self.by_field(self._article("journal={%s}," % self.ABBR_TSE))["journal"]
-        self.assertEqual((j["op"], j["review"], j["dblp"]), ("edit", True, self.FULL_TSE))
+        j = self.by_field(self._article("journal={%s}," % self.ABBR_JES))["journal"]
+        self.assertEqual((j["op"], j["review"], j["dblp"]), ("edit", True, self.FULL_JES))
         self.assertIn("expand", j["note"])
 
     def test_journal_abbrev_accepted_short(self):
         # Under --short the abbreviation is the target, so it is OK.
-        f = self._article("journal={%s}," % self.ABBR_TSE, short=True)
+        f = self._article("journal={%s}," % self.ABBR_JES, short=True)
         self.assertNotIn("journal", self.by_field(f))
 
     def test_journal_full_name_proposed_for_shortening(self):
         # Under --short the full title is offered SHORTENING to the abbreviation (review).
-        j = self.by_field(self._article("journal={%s}," % self.FULL_TSE, short=True))["journal"]
-        self.assertEqual((j["op"], j["review"], j["dblp"]), ("edit", True, self.ABBR_TSE))
+        j = self.by_field(self._article("journal={%s}," % self.FULL_JES, short=True))["journal"]
+        self.assertEqual((j["op"], j["review"], j["dblp"]), ("edit", True, self.ABBR_JES))
         self.assertIn("shorten", j["note"])
 
     def test_journal_fill_uses_full_name(self):
         # A missing journal is filled with the official full title, not the abbreviation.
         f = self.finding(
-            "@article{a,\n title={Static Analysis for Concurrency Bugs},\n year={2021}\n}")
+            "@article{a,\n title={Example Paper About Sample Topics},\n year={2021}\n}")
         j = self.by_field(f)["journal"]
-        self.assertEqual((j["op"], j["dblp"]), ("add", self.FULL_TSE))
+        self.assertEqual((j["op"], j["dblp"]), ("add", self.FULL_JES))
 
     def test_journal_short_form_uses_abbrev(self):
         # Under --short the proposed/filled journal is DBLP's abbreviation.
         f = self.finding(
-            "@article{a,\n title={Static Analysis for Concurrency Bugs},\n year={2021}\n}",
+            "@article{a,\n title={Example Paper About Sample Topics},\n year={2021}\n}",
             short=True)
-        self.assertEqual(self.by_field(f)["journal"]["dblp"], self.ABBR_TSE)
+        self.assertEqual(self.by_field(f)["journal"]["dblp"], self.ABBR_JES)
 
     def test_venue_acronym_expanded_default(self):
         # Default mode: a bare acronym booktitle is offered EXPANSION to the canonical name.
         f = self.finding(
             "@inproceedings{p,\n author={Alice B. Smith and Bob Jones},\n"
-            " title={A Great Paper on Software Testing},\n booktitle={ICSE},\n"
-            " pages={100--110},\n doi={10.1/icse20},\n year={2020}\n}")
+            " title={Yet Another Example Paper},\n booktitle={ICET},\n"
+            " pages={100--110},\n doi={10.1/icet20},\n year={2020}\n}")
         bk = self.by_field(f)["booktitle"]
         self.assertEqual((bk["op"], bk["review"]), ("edit", True))
-        self.assertIn("(ICSE 2020)", bk["dblp"])
+        self.assertIn("(ICET 2020)", bk["dblp"])
         self.assertIn("expand", bk["note"])
 
     def test_venue_full_name_shortened(self):
-        # Under --short the canonical conference name is offered SHORTENING to 'Proc. {ICSE}'.
+        # Under --short the canonical conference name is offered SHORTENING to 'Proc. {ICET}'.
         bk = self.by_field(self.finding(
-            "@inproceedings{p,\n title={A Great Paper on Software Testing},\n"
-            " booktitle={International Conference on Software Engineering},\n"
+            "@inproceedings{p,\n title={Yet Another Example Paper},\n"
+            " booktitle={International Conference on Example Topics},\n"
             " year={2020}\n}", short=True))["booktitle"]
-        self.assertEqual(bk["dblp"], "Proc. {ICSE}")
+        self.assertEqual(bk["dblp"], "Proc. {ICET}")
         self.assertIn("shorten", bk["note"])
 
     def test_apply_only_selected(self):
         text = ("@inproceedings{p,\n author={Alice B. Smith and Bob Jones},\n"
-                " title={A Great Paper on Software Testing},\n booktitle={Some Wrong Venue},\n"
+                " title={Yet Another Example Paper},\n booktitle={Some Wrong Venue},\n"
                 " year={2020}\n}")
         props = self.finding(text)["proposals"]
         new, applied, missing = bc._apply_ids(text, props, ["p:booktitle", "p:nope"])
         self.assertEqual([x["field"] for x in applied], ["booktitle"])
         self.assertEqual(missing, ["p:nope"])
-        self.assertIn("(ICSE 2020)", new)
+        self.assertIn("(ICET 2020)", new)
         self.assertNotIn("153--156", new)            # pages fill was NOT selected
 
     def test_apply_latex_escape_default_and_utf8(self):
-        text = ("@inproceedings{conf/icse/Accent20,\n title={A LaTeX Escaping Case},\n"
-                " booktitle={ICSE},\n year={2020}\n}")
-        aid = "conf/icse/Accent20:author"
+        text = ("@inproceedings{conf/icet/Accent20,\n title={A LaTeX Escaping Case},\n"
+                " booktitle={ICET},\n year={2020}\n}")
+        aid = "conf/icet/Accent20:author"
         esc, applied, _ = bc._apply_ids(text, self.finding(text)["proposals"], [aid])  # default
-        self.assertIn(bc.to_latex("Heiko Müller and André Çağrı"), esc)
+        self.assertIn(bc.to_latex("Dümmy Üser and Tëst Çase"), esc)
         raw, _, _ = bc._apply_ids(text, self.finding(text)["proposals"], [aid], latex=False)
-        self.assertIn("Heiko Müller and André Çağrı", raw)                             # --utf8
+        self.assertIn("Dümmy Üser and Tëst Çase", raw)                             # --utf8
         # idempotent: the escaped form folds equal to DBLP, so no further author proposal
         self.assertNotIn(aid, [p["id"] for p in self.finding(esc)["proposals"]])
 
@@ -334,16 +334,16 @@ class CheckTests(unittest.TestCase):
         import subprocess
         cite = os.path.join(ROOT, "bin", "dblpcite")
         db = os.path.join(self.tmp, "fixture.db")
-        r = subprocess.run([cite, "--db", db], input="conf/icse/Accent20\n",
+        r = subprocess.run([cite, "--db", db], input="conf/icet/Accent20\n",
                            capture_output=True, text=True)
-        self.assertIn(r'M{\"{u}}ller', r.stdout)               # default: escaped
-        r2 = subprocess.run([cite, "--db", db, "--utf8"], input="conf/icse/Accent20\n",
+        self.assertIn(r'D{\"{u}}mmy', r.stdout)               # default: escaped
+        r2 = subprocess.run([cite, "--db", db, "--utf8"], input="conf/icet/Accent20\n",
                             capture_output=True, text=True)
-        self.assertIn("Müller", r2.stdout)                     # --utf8: raw
+        self.assertIn("Dümmy", r2.stdout)                     # --utf8: raw
 
     def test_apply_safe_skips_venue_and_review(self):
         text = ("@article{a,\n author={Carol Lee},\n"             # author -> review (subset)
-                " title={Static Analysis for Concurrency Bugs},\n"
+                " title={Example Paper About Sample Topics},\n"
                 " journal={Wrong Journal Name},\n year={2019}\n}")  # journal -> venue, year -> fix
         props = self.finding(text)["proposals"]
         safe = [p["id"] for p in props if not p["review"]]
@@ -354,14 +354,14 @@ class CheckTests(unittest.TestCase):
         self.assertNotIn("author", fields)          # review not in 'safe'
 
     def test_upgrade(self):
-        text = ("@misc{m,\n title={Neural Methods for Program Repair},\n"
+        text = ("@misc{m,\n title={Example Methods for Sample Tasks},\n"
                 " eprint={2001.00001},\n year={2020}\n}")
         f = self.finding(text)
         self.assertEqual(f["status"], "upgrade")
         up = f["proposals"][0]
         self.assertEqual((up["op"], up["review"]), ("replace", True))
         self.assertTrue(up["id"].endswith(":@"))
-        self.assertIn("Neural Methods for Program Repair", up["replacement"])
+        self.assertIn("Example Methods for Sample Tasks", up["replacement"])
         new, applied, _ = bc._apply_ids(text, f["proposals"], [up["id"]])
         self.assertEqual(len(applied), 1)
         self.assertIn("@inproceedings", new)        # @misc -> @inproceedings (whole-entry swap)
@@ -370,7 +370,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(self.finding(
             "@article{u, title={Completely Unrelated Quantum Gibberish Xyzzy}, year={2020}}")["status"],
             "unknown")
-        f = self.finding("@article{g, title={Static Analysis for Quantum Bugs}, year={2020}}")
+        f = self.finding("@article{g, title={Example Paper About Quantum Topics}, year={2020}}")
         self.assertEqual(f["status"], "fuzzy")
         self.assertTrue(f["candidates"])
 
@@ -380,8 +380,8 @@ class CheckTests(unittest.TestCase):
 
     # --- suppression (ignore) -------------------------------------------------
     MISMATCH = ("@article{a,\n author={Carol Lee and Dan Park},\n"
-                " title={Static Analysis for Concurrency Bugs},\n"
-                " journal={IEEE Trans. Software Eng.},\n volume={47},\n number={3},\n"
+                " title={Example Paper About Sample Topics},\n"
+                " journal={J. Example Stud.},\n volume={47},\n number={3},\n"
                 " pages={200--220},\n year={2019}\n}")   # year wrong, doi missing, journal abbrev
 
     def _suppress(self, finding, *sel):
@@ -409,7 +409,7 @@ class CheckTests(unittest.TestCase):
         self.assertTrue(self.by_field(f)["doi"]["suppressed"])
 
     def test_suppress_by_type_matches_only_that_type(self):
-        venue = ("@inproceedings{p,\n title={A Great Paper on Software Testing},\n"
+        venue = ("@inproceedings{p,\n title={Yet Another Example Paper},\n"
                  " booktitle={Some Wrong Venue},\n year={2020}\n}")
         f, _ = self._suppress(self.finding(venue), "@article:booktitle")
         self.assertFalse(self.by_field(f)["booktitle"]["suppressed"])   # entry is inproceedings
@@ -417,7 +417,7 @@ class CheckTests(unittest.TestCase):
         self.assertTrue(self.by_field(g)["booktitle"]["suppressed"])
 
     def test_suppress_fuzzy_nag(self):
-        f = self.finding("@article{g, title={Static Analysis for Quantum Bugs}, year={2020}}")
+        f = self.finding("@article{g, title={Example Paper About Quantum Topics}, year={2020}}")
         self.assertEqual(f["status"], "fuzzy")
         f, sels = self._suppress(f, "g:*")
         self.assertTrue(f["nag_suppressed"])

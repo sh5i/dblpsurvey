@@ -41,19 +41,19 @@ q "INSERT INTO fts(key,title,authors) SELECT key,title,authors FROM entries;"
 python3 src/dblp_confname.py "$DB" | sqlite3 "$DB"
 
 eq "row count"                  "$(q 'SELECT count(*) FROM entries')" 4
-eq "doi fallback (no doi.org)"  "$(q "SELECT doi FROM entries WHERE key='journals/tse/Koehler05'")" "https://example.org/q?a=1&b=2"
-eq "no-ee doi empty"            "$(q "SELECT doi FROM entries WHERE key='journals/tse/Cafe18'")" ""
-eq "numeric entities decoded"   "$(q "SELECT title FROM entries WHERE key='journals/tse/Cafe18'")" "Café and ☃ in titles"
-eq "title_norm"                 "$(q "SELECT key FROM entries WHERE title_norm='onh2orefactoring'")" journals/tse/MuellerA14
-eq "fts"                        "$(q "SELECT key FROM fts WHERE fts MATCH 'refactoring'")" journals/tse/MuellerA14
-eq "ee like"                    "$(q "SELECT key FROM entries WHERE ee LIKE '%10.1/late%'")" journals/tse/MuellerA14
+eq "doi fallback (no doi.org)"  "$(q "SELECT doi FROM entries WHERE key='journals/jes/Koester05'")" "https://example.org/q?a=1&b=2"
+eq "no-ee doi empty"            "$(q "SELECT doi FROM entries WHERE key='journals/jes/Cafe18'")" ""
+eq "numeric entities decoded"   "$(q "SELECT title FROM entries WHERE key='journals/jes/Cafe18'")" "Café and ☃ in titles"
+eq "title_norm"                 "$(q "SELECT key FROM entries WHERE title_norm='onh2orefactoring'")" journals/jes/BaeckerA14
+eq "fts"                        "$(q "SELECT key FROM fts WHERE fts MATCH 'refactoring'")" journals/jes/BaeckerA14
+eq "ee like"                    "$(q "SELECT key FROM entries WHERE ee LIKE '%10.1/late%'")" journals/jes/BaeckerA14
 eq "proceedings count"          "$(q 'SELECT count(*) FROM proceedings')" 2
 eq "journals-keyed proceedings" "$(q "SELECT count(*) FROM proceedings WHERE key LIKE 'journals/%'")" 1
-eq "crossref join"              "$(q "SELECT substr(p.title,1,21) FROM entries e JOIN proceedings p ON p.key=e.crossref WHERE e.key='conf/icse/SmithB01'")" "Proceedings of the 23"
-eq "conf_name"                  "$(q "SELECT conf_name FROM proceedings WHERE key='conf/icse/2001'")" "International Conference on Software Engineering"
-eq "conf ordinal"               "$(q "SELECT ordinal FROM proceedings WHERE key='conf/icse/2001'")" 23
+eq "crossref join"              "$(q "SELECT substr(p.title,1,21) FROM entries e JOIN proceedings p ON p.key=e.crossref WHERE e.key='conf/icet/SmithB01'")" "Proceedings of the 23"
+eq "conf_name"                  "$(q "SELECT conf_name FROM proceedings WHERE key='conf/icet/2001'")" "International Conference on Example Topics"
+eq "conf ordinal"               "$(q "SELECT ordinal FROM proceedings WHERE key='conf/icet/2001'")" 23
 eq "workshop kind/ordinal"      "$(q "SELECT kind||'/'||ordinal FROM proceedings WHERE key='journals/corr/absWS25'")" "workshop/5"
-eq "journal join"               "$(q "SELECT j.full_name FROM entries e JOIN journals j ON j.abbrev=e.journal WHERE e.key='journals/tse/MuellerA14'")" "IEEE Transactions on Software Engineering"
+eq "journal join"               "$(q "SELECT j.full_name FROM entries e JOIN journals j ON j.abbrev=e.journal WHERE e.key='journals/jes/BaeckerA14'")" "Journal of Example Studies"
 
 # 4. pass-through ("*"): exercise the shipped config/sample-all.yaml; both extractors agree, and
 #    the otherwise-filtered venue (journals/xx, absent from test/config.yaml) now survives.
@@ -66,9 +66,9 @@ grep -q "journals/xx/Unwanted10" "$TMP/py.all" || fail "wildcard: off-list venue
 if $PY --format=sql --config=/dev/null --dtd="$DTD" < "$FIX" >/dev/null 2>&1; then fail "fail-fast: python accepted an empty config"; fi
 if $GO --format=sql --config=/dev/null --dtd="$DTD" < "$FIX" >/dev/null 2>&1; then fail "fail-fast: go accepted an empty config"; fi
 
-# 5b. malformed shape: a scalar where a list is expected (`journals: tse`, no `- `) must error
+# 5b. malformed shape: a scalar where a list is expected (`journals: jes`, no `- `) must error
 #     on BOTH extractors -- not be silently misread (python used to iterate the scalar's chars).
-SCALAR=$TMP/scalar.yaml; printf 'journals: tse\n' > "$SCALAR"
+SCALAR=$TMP/scalar.yaml; printf 'journals: jes\n' > "$SCALAR"
 if $PY --format=sql --config="$SCALAR" --dtd="$DTD" < "$FIX" >/dev/null 2>&1; then fail "fail-fast: python accepted a scalar journals:"; fi
 if $GO --format=sql --config="$SCALAR" --dtd="$DTD" < "$FIX" >/dev/null 2>&1; then fail "fail-fast: go accepted a scalar journals:"; fi
 

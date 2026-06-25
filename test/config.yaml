@@ -1,10 +1,10 @@
 journals:
-  - tse
+  - jes
   - corr
 journal_names:
-  "IEEE Trans. Software Eng.": "IEEE Transactions on Software Engineering"
+  "J. Example Stud.": "Journal of Example Studies"
 conferences:
-  - icse
+  - icet
 year:
   lower: 1995
   upper: 2100

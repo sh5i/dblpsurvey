@@ -13,16 +13,16 @@ import bibspan as bs  # noqa: E402
 
 # brace / 2-space / no trailing comma / lowercase names; field order author<title<year
 BRACE = (
-    "@article{Yu2021,\n"
-    "  author = {Le Yu and Xiapu Luo},\n"
+    "@article{Tan2021,\n"
+    "  author = {Alice Tan and Bob Rivera},\n"
     "  title = {A Great Paper},\n"
-    "  journal = {TSE},\n"
+    "  journal = {JES},\n"
     "  year = {2021}\n"
     "}\n\n"
     "@inproceedings{Smith2020,\n"
     "  author = {Alice Smith},\n"
     "  title = {Another Paper},\n"
-    "  booktitle = {ICSE},\n"
+    "  booktitle = {ICET},\n"
     "  year = {2020}\n"
     "}\n")
 
@@ -49,7 +49,7 @@ def diff_lines(a, b):
 class ParseInfer(unittest.TestCase):
     def test_parse_spans(self):
         e = bg.parse(BRACE)[0]
-        self.assertEqual((e.type, e.key), ("article", "Yu2021"))
+        self.assertEqual((e.type, e.key), ("article", "Tan2021"))
         f = e.field("year")
         self.assertEqual(BRACE[f.val_start:f.val_end], "{2021}")
         self.assertEqual([x.name for x in e.fields],
@@ -92,7 +92,7 @@ class VendoredBibtexparser(unittest.TestCase):
         bp = bs.bibtexparser_core()
         lib = bp.splitter.Splitter(BRACE).split()
         self.assertEqual([(e.entry_type, e.key) for e in lib.entries],
-                         [("article", "Yu2021"), ("inproceedings", "Smith2020")])
+                         [("article", "Tan2021"), ("inproceedings", "Smith2020")])
         # core stays span-preserving: enclosing delimiters are NOT stripped
         self.assertEqual(lib.entries[0].fields_dict["year"].value, "{2021}")
         # the whole point of the stub: no __init__ -> no middleware -> no pylatexenc
@@ -107,14 +107,14 @@ class CoreOps(unittest.TestCase):
         self.assertEqual((applied, skipped), ([], []))
 
     def test_set_existing_is_minimal(self):
-        out, _, _ = bg.apply(BRACE, [{"op": "set", "key": "Yu2021",
+        out, _, _ = bg.apply(BRACE, [{"op": "set", "key": "Tan2021",
                                       "field": "year", "value": "2022"}])
         added, removed = diff_lines(BRACE, out)
         self.assertEqual(added, ["  year = {2022}"])
         self.assertEqual(removed, ["  year = {2021}"])
 
     def test_set_missing_appends_in_file_style(self):
-        out, _, _ = bg.apply(BRACE, [{"op": "set", "key": "Yu2021",
+        out, _, _ = bg.apply(BRACE, [{"op": "set", "key": "Tan2021",
                                       "field": "doi", "value": "10.1/x"}])
         self.assertIn("  year = {2021},\n  doi = {10.1/x}\n}", out)
 
@@ -130,13 +130,13 @@ class CoreOps(unittest.TestCase):
         self.assertLess(b.index("pages"), b.index("year"))
 
     def test_remove_field(self):
-        out, _, _ = bg.apply(BRACE, [{"op": "remove", "key": "Yu2021", "field": "journal"}])
+        out, _, _ = bg.apply(BRACE, [{"op": "remove", "key": "Tan2021", "field": "journal"}])
         self.assertNotIn("journal", out)
         self.assertIn("  title = {A Great Paper},\n  year = {2021}\n}", out)
 
     def test_remove_entry(self):
-        out, _, _ = bg.apply(BRACE, [{"op": "remove-entry", "key": "Yu2021"}])
-        self.assertNotIn("Yu2021", out)
+        out, _, _ = bg.apply(BRACE, [{"op": "remove-entry", "key": "Tan2021"}])
+        self.assertNotIn("Tan2021", out)
         self.assertTrue(out.startswith("@inproceedings{Smith2020"))
 
     def test_add_entry_into_empty_text_no_leading_blank(self):
@@ -164,7 +164,7 @@ class CoreOps(unittest.TestCase):
         out, applied, _ = bg.apply(BRACE, [op])
         self.assertEqual(len(applied), 1)
         self.assertIn("title = {Revised}", out)
-        self.assertTrue(out.index("Yu2021") < out.index("Smith2020"))   # stayed in place
+        self.assertTrue(out.index("Tan2021") < out.index("Smith2020"))   # stayed in place
 
 
 class Conventions(unittest.TestCase):
@@ -204,7 +204,7 @@ class Conventions(unittest.TestCase):
 
 class Robustness(unittest.TestCase):
     def test_idempotent(self):
-        ops = [{"op": "set", "key": "Yu2021", "field": "year", "value": "2099"},
+        ops = [{"op": "set", "key": "Tan2021", "field": "year", "value": "2099"},
                {"op": "add-entry", "key": "New",
                 "value": "@article{New, title={N}, author={Z}, year={2030}}"}]
         once, _, _ = bg.apply(BRACE, ops)
@@ -214,8 +214,8 @@ class Robustness(unittest.TestCase):
 
     def test_unresolved_ops_skipped_file_otherwise_unchanged(self):
         ops = [{"op": "set", "key": "Nope", "field": "year", "value": "2000"},
-               {"op": "remove", "key": "Yu2021", "field": "absent"},
-               {"op": "set", "key": "Yu2021", "field": "year", "value": "2022"}]
+               {"op": "remove", "key": "Tan2021", "field": "absent"},
+               {"op": "set", "key": "Tan2021", "field": "year", "value": "2022"}]
         out, applied, skipped = bg.apply(BRACE, ops)
         self.assertEqual(len(applied), 1)
         self.assertEqual(len(skipped), 2)
@@ -224,12 +224,12 @@ class Robustness(unittest.TestCase):
 
     def test_unbalanced_braces_warns(self):
         warns = []
-        bg.apply(BRACE, [{"op": "set", "key": "Yu2021", "field": "note", "value": "a{b"}],
+        bg.apply(BRACE, [{"op": "set", "key": "Tan2021", "field": "note", "value": "a{b"}],
                  warn=warns.append)
         self.assertTrue(any("unbalanced" in w for w in warns))
 
     def test_insert_mode_ops(self):
-        raw = "@article{New, title={N}}\n@article{Yu2021, title={Dup}}\n"
+        raw = "@article{New, title={N}}\n@article{Tan2021, title={Dup}}\n"
         existing = {e.key for e in bg.parse(BRACE)}
         self.assertEqual([o["op"] for o in bg._insert_ops(raw, existing, False)], ["add-entry"])
         both = bg._insert_ops(raw, existing, True)
@@ -237,18 +237,18 @@ class Robustness(unittest.TestCase):
 
     def test_overlapping_set_ops_second_skipped(self):
         # two set on one field would corrupt each other; keep the first, skip the second.
-        ops = [{"op": "set", "key": "Yu2021", "field": "year", "value": "2001"},
-               {"op": "set", "key": "Yu2021", "field": "year", "value": "2002"}]
+        ops = [{"op": "set", "key": "Tan2021", "field": "year", "value": "2001"},
+               {"op": "set", "key": "Tan2021", "field": "year", "value": "2002"}]
         out, applied, skipped = bg.apply(BRACE, ops)
         self.assertEqual(len(applied), 1)
         self.assertTrue(any("overlap" in r for _, r in skipped))
         self.assertIn("year = {2001}", out)                # first op won
-        self.assertEqual(out.count("year = {"), 2)         # Yu2021 + Smith2020, no garbage
+        self.assertEqual(out.count("year = {"), 2)         # Tan2021 + Smith2020, no garbage
         self.assertNotIn("}}", out)                        # not corrupted
 
     def test_remove_then_set_same_field_second_skipped(self):
-        ops = [{"op": "remove", "key": "Yu2021", "field": "journal"},
-               {"op": "set", "key": "Yu2021", "field": "journal", "value": "X"}]
+        ops = [{"op": "remove", "key": "Tan2021", "field": "journal"},
+               {"op": "set", "key": "Tan2021", "field": "journal", "value": "X"}]
         out, applied, skipped = bg.apply(BRACE, ops)
         self.assertEqual(len(applied), 1)                  # only the remove applied
         self.assertTrue(any("overlap" in r for _, r in skipped))
