@@ -601,7 +601,9 @@ def _pick(props, findings):
         lines = ["%s\t%s" % (_proposal_line(cc, p, indent=""),
                              base64.b64encode(render_show(fmap[p["id"]], p, True).encode()).decode())
                  for p in props]
-        cmd = [picker, "-m", "--ansi", "--delimiter", "\t", "--with-nth", "1",
+        cmd = [picker, "-m", "--ansi",
+               "--layout=reverse-list",  # proposals top-down in report order (like dblpsurvey); Tab walks the list
+               "--delimiter", "\t", "--with-nth", "1",
                "--preview", "printf %s {2} | base64 --decode", "--preview-window", "down,45%,wrap"]
     else:
         lines = [_proposal_line(_colorer(False), p, indent="") for p in props]
