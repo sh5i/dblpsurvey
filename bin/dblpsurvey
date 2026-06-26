@@ -59,7 +59,7 @@ if [ "$BIBTEX" = 1 ] || [ -n "$INSERT" ]; then
   if [ -n "$INSERT" ]; then
     printf '%s' "$bibtex" | python3 "$here/../src/bibgraft.py" "$INSERT" --insert
   else
-    printf '%s' "$bibtex"
+    printf '%s\n' "$bibtex"
   fi
   exit 0
 fi
