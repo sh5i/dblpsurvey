@@ -128,7 +128,7 @@ def _split_value(tok):
 # parser), so a missing submodule is a setup error -- the loader raises loudly HERE, where
 # `import bibspan` fails fast with an actionable message, rather than limping on to a
 # confusing failure at first parse.  Run `git submodule update --init vendor/bibtexparser`
-# (or `make` -- the Makefile fetches it).
+# (or `make` -- the GNUmakefile fetches it).
 #
 # Because Python runs top-to-bottom (like Ruby), the base class is ready by the time we
 # subclass it just below.  We CAN'T write `import bibtexparser.splitter` (we cherry-pick the
