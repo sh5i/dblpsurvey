@@ -6,7 +6,7 @@ A grep- and SQL-friendly survey toolkit over the [dblp](https://dblp.org/) bibli
 - a text database (`data/<profile>.txt.gz`) — one line per paper, for fuzzy search with `fzf`/`peco`/`grep`;
 - a SQLite database (`data/<profile>.db`) — a flat `entries` table plus a full-text index, for structured/full-text queries and for checking a `.bib` against DBLP.
 
-![](https://i.gyazo.com/3c1e31b89302d81cd1fbdfdf18b3fb89.gif)
+![dblpsurvey demo](docs/dblpsurvey.gif)
 
 ## Tools
 
@@ -72,17 +72,21 @@ $ dblpsurvey -i refs.bib code smells      # pick -> BibTeX -> inserted into refs
 $ dblpsurvey -b code smells               # ... or just print the BibTeX to stdout
 ```
 
+![dblpsurvey -i → entry appended in your .bib's own conventions](docs/bibtex.gif)
+
 ## Checking a `.bib` — `dblplint`
 
 Match each entry in a `.bib` against the SQLite database and propose fixes.
 Nothing is applied until you choose (select-then-apply, like `git add -p`); every proposal has a stable id:
 
+![dblplint demo](docs/dblplint.gif)
+
 ```
 $ dblplint refs.bib                 # read-only report (safe in CI: a missing DB just skips, exit 0)
-$ dblplint refs.bib --apply         # pick fixes interactively (fzf/peco), then apply
+$ dblplint refs.bib --apply         # pick fixes interactively (fzf/peco; Tab to mark), then apply
 $ dblplint refs.bib --apply=all     # apply every proposal (add --safe for the confident ones only)
 $ dblplint refs.bib --mute          # silence proposals you've decided to keep, for good
-$ dblplint --profile ml refs.bib    # check against the 'ml' profile's database
+$ dblplint -p ml refs.bib           # check against the 'ml' profile's database
 ```
 
 Authoritative fields (author, year, pages, volume, number) are corrected from DBLP; missing fields are filled; venue names and a differing DOI are offered for review; an arXiv entry that has since been published is offered a whole-entry swap.
@@ -142,7 +146,7 @@ A config that selects no venues is rejected; use `"*"` if you really want everyt
 ### Profiles
 
 A **profile** `NAME` pairs `config/NAME.yaml` with its own databases `data/NAME.{txt.gz,db}`, so you can keep several surveys side by side — the multi-gigabyte XML download is shared.
-`default` is used when no profile is named.
+`default` is used when no profile is named; export `DBLPSURVEY_PROFILE=NAME` to change that default for `dblpsurvey`/`dblpcite`/`dblplint` (an explicit `-p`/`--profile` still wins).
 Add another by writing a new config and building it:
 
 ```
