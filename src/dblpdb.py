@@ -242,8 +242,11 @@ class Db:
 
     def by_title(self, title):
         """(published, preprints) whose normalized title matches `title`."""
+        tn = norm_title(title)
+        if not tn:                        # else a punctuation-only title matches every empty-norm row
+            return [], []
         rows = self.con.execute(
-            "SELECT * FROM entries WHERE title_norm=?", (norm_title(title),)).fetchall()
+            "SELECT * FROM entries WHERE title_norm=?", (tn,)).fetchall()
         return self._split(rows)
 
     def by_doi(self, doi):
