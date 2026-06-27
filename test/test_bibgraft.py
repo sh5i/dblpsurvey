@@ -147,7 +147,7 @@ class CoreOps(unittest.TestCase):
         self.assertTrue(out.startswith("@article{New,"))   # no blank line before the first entry
         self.assertTrue(out.endswith("}\n"))
 
-    def test_add_entry_normalises_order_and_style(self):
+    def test_add_entry_normalizes_order_and_style(self):
         op = {"op": "add-entry", "key": "New",
               "value": "@article{New, year={2030}, title={N}, author={Z}}"}
         out, applied, _ = bg.apply(MIXED, [op])

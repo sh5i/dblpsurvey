@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for dblpdb (the dblp.db domain layer): pure transforms, the Db repository, and
-DblpEntry serialisation. Stdlib only. Run: python3 test/test_dblpdb.py (or via `make test`)."""
+DblpEntry serialization. Stdlib only. Run: python3 test/test_dblpdb.py (or via `make test`)."""
 
 import os
 import sqlite3
@@ -57,7 +57,7 @@ def build_db():
 
 class Transforms(unittest.TestCase):
     def test_norm_title_contract(self):
-        # The hard-rule normalisation, shared with the extractors and the DB.
+        # The hard-rule normalization, shared with the extractors and the DB.
         self.assertEqual(dblpdb.norm_title("On H2O & Refactoring!"), "onh2orefactoring")
         self.assertEqual(dblpdb.norm_title("a b  c"), "abc")
 
@@ -100,7 +100,7 @@ class DbLookups(unittest.TestCase):
         self.assertEqual(self.db.by_key("journals/jes/Art21").year, "2021")
         self.assertIsNone(self.db.by_key("nope"))
 
-    def test_by_title_normalised(self):
+    def test_by_title_normalized(self):
         pub, pre = self.db.by_title("example paper about sample topics!!")
         self.assertEqual([e.key for e in pub], ["journals/jes/Art21"])
         self.assertEqual(pre, [])
@@ -128,7 +128,7 @@ class DbLookups(unittest.TestCase):
         self.assertIn("journals/jes/Art21", keys)
 
 
-class EntrySerialisation(unittest.TestCase):
+class EntrySerialization(unittest.TestCase):
     def setUp(self):
         self.db = dblpdb.Db(build_db())
 
