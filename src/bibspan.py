@@ -165,7 +165,7 @@ class _CapturingSplitter(bp.splitter.Splitter):
     #   1. blocks bracketed by `# <bibgraft>` ... `# </bibgraft>` -- pure
     #      additions that side-record span/whitespace data; they never change which
     #      marks are consumed, the value returned, or any exception raised (so
-    #      upstream's behaviour is intact, and dropping every `<bibgraft>`..`</bibgraft>`
+    #      upstream's behavior is intact, and dropping every `<bibgraft>`..`</bibgraft>`
     #      block reproduces the original line-for-line, modulo blank lines).
     #   2. bibtexparser's own Field/Entry/DuplicateFieldKeyBlock/ParserStateException
     #      are qualified (`Model.` / `bp.`) to dodge the name clash with this module's

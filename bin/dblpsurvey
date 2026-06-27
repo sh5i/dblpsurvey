@@ -51,7 +51,7 @@ selection=$(gunzip -c "$db" | "${PICKER[@]}")
 # Don't clobber the clipboard when nothing was selected (e.g. aborted with ESC).
 [ -n "$selection" ] || exit 0
 
-# -b / -i: serialise the picks to BibTeX (dblpcite, via the dblp.db domain layer).  -b prints
+# -b / -i: serialize the picks to BibTeX (dblpcite, via the dblp.db domain layer).  -b prints
 # them to stdout; -i FILE inserts them into FILE with bibgraft (preserving its conventions).
 if [ "$BIBTEX" = 1 ] || [ -n "$INSERT" ]; then
   bibtex=$(printf '%s\n' "$selection" | "$here/dblpcite" --profile "$PROFILE") || exit 1

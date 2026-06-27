@@ -95,7 +95,7 @@ func textOf(rec string, re *regexp.Regexp) (string, bool) {
 func sqlQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 
 // normTitle mirrors dblp_text.py's title_norm: keep ASCII alphanumerics only,
-// lowercased.  ASCII-only on purpose so every extractor and the query side normalise identically.
+// lowercased.  ASCII-only on purpose so every extractor and the query side normalize identically.
 func normTitle(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {

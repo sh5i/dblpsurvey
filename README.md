@@ -13,7 +13,7 @@ A grep- and SQL-friendly survey toolkit over the [dblp](https://dblp.org/) bibli
 All CLIs live in `bin/`.
 
 - **`dblpsurvey`** — search and pick papers; copy them to the clipboard, print them as BibTeX, or insert them straight into a `.bib`.
-- **`dblplint`** — check and fix an existing `.bib` against DBLP, offline: correct author/year/pages/volume, fill missing fields, normalise venue names, swap an arXiv preprint for its published version — `git add -p`-style select-then-apply.
+- **`dblplint`** — check and fix an existing `.bib` against DBLP, offline: correct author/year/pages/volume, fill missing fields, normalize venue names, swap an arXiv preprint for its published version — `git add -p`-style select-then-apply.
 - **`dblpcite`** — turn DBLP keys into BibTeX entries (the bridge `dblpsurvey -i` uses; also composable on its own).
 
 Non-ASCII field values (accented author names, …) are escaped to LaTeX macros by default — the portable form for (u)pLaTeX / legacy bibtex; pass `--utf8` (to `dblpcite` or `dblplint`) for raw UTF-8 instead.  DBLP author names are entirely Latin and round-trip completely; Greek/maths characters in titles have no portable macro and are left as UTF-8 (and reported).  The escapes assume `\usepackage[T1]{fontenc}`.
@@ -191,7 +191,7 @@ SELECT title, year FROM entries WHERE venue = 'icse' AND year >= 2020;
 SELECT e.year, e.venue, e.title FROM fts JOIN entries e USING(key)
 WHERE fts MATCH 'refactoring legacy' ORDER BY rank LIMIT 10;
 
--- exact title lookup: normalise the query title the SAME way (lowercase, keep [a-z0-9])
+-- exact title lookup: normalize the query title the SAME way (lowercase, keep [a-z0-9])
 SELECT key, year, venue FROM entries WHERE title_norm = 'refactoringimprovingthedesign';
 
 -- match a DOI inside any electronic-edition link (handles arXiv vs publisher links)

@@ -56,7 +56,7 @@ _ROOT = os.path.dirname(_HERE)                              # repo root (bin/'s 
 _SRC = os.path.join(_ROOT, "src")                           # where the src/ modules live
 sys.path.insert(0, _SRC)
 
-# The dblp.db domain layer (field formatting, venue resolution, BibTeX serialisation) is a
+# The dblp.db domain layer (field formatting, venue resolution, BibTeX serialization) is a
 # light, stdlib-only sibling -> import it eagerly.  bibspan/bibgraft (which pull in the
 # vendored submodule) stay lazy via _sibling, so `--help` / the no-db skip cost nothing.
 from dblpdb import (Db, norm_title, norm_pages, fmt_pages, authors_to_bib,  # noqa: E402
@@ -69,7 +69,7 @@ def _sibling(name):
     return __import__(name)
 
 # --- author-name helpers (match a .bib author list against DBLP) --------------
-# norm_*/fmt_*/_delatex/_fold and the DB→BibTeX serialiser now live in src/dblpdb.py
+# norm_*/fmt_*/_delatex/_fold and the DB→BibTeX serializer now live in src/dblpdb.py
 # (imported above); only the .bib-author matching is dblplint-specific.
 
 def is_truncated(author):

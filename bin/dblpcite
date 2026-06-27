@@ -28,7 +28,7 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 def _key(line):
     """The DBLP key in a line: the leading `(key)` (dblpsurvey form) if present, else the
-    first whitespace token.  ANSI colour is stripped first; a blank line yields None."""
+    first whitespace token.  ANSI color is stripped first; a blank line yields None."""
     s = _ANSI.sub("", line).strip()
     if not s:
         return None

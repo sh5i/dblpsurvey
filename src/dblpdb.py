@@ -1,7 +1,7 @@
 """dblpdb -- the dblp.db domain layer.
 
 `Db` is a repository over an open dblp.db connection (look records up); `DblpEntry` is a
-single `entries` row with the behaviour to read, compare and serialise it (the .bib side is
+single `entries` row with the behavior to read, compare and serialize it (the .bib side is
 bibspan's `Entry`; this is the DBLP side).  The free functions are the pure value transforms
 (field formatting, name folding) the two classes -- and dblplint's matching -- share.
 
@@ -120,7 +120,7 @@ def _vn(s):
 # --- the domain object: one dblp.db `entries` row -----------------------------
 
 class DblpEntry:
-    """A DBLP record (one `entries` row) with the behaviour to read and serialise it.
+    """A DBLP record (one `entries` row) with the behavior to read and serialize it.
     Distinct from bibspan's `Entry` (a .bib entry) -- this is the DBLP side.  Holds the
     connection so it can resolve venue names from journals/proceedings on demand."""
 

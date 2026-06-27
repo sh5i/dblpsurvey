@@ -33,7 +33,7 @@
 # ── HOW `conf_name` IS RECOVERED ──────────────────────────────────────────────
 # DBLP titles bury the series name among boilerplate, the acronym tag, the edition number,
 # and the place/date. We strip the framing to a "name region", split it on commas into
-# SEGMENTS, recognise which SHAPE it is, and normalise to "<qualifiers> <Type> on/of <Topic>":
+# SEGMENTS, recognize which SHAPE it is, and normalize to "<qualifiers> <Type> on/of <Topic>":
 #
 #     direct     "Proceedings of the 9th International Conference on X, ICSE 2009, Place"
 #     inverted   "X, 9th International Conference, CAiSE 2009, Place, Proceedings"   (LNCS)
@@ -188,7 +188,7 @@ NAME_TYPE_RE = re.compile(
 # topic — used to decide whether an inverted fragment still needs its topic grafted on.
 QUAL = "|".join("International IEEE ACM IFIP Annual Working National European Asia-Pacific "
                 "World Joint Int'l SIGSOFT SIGPLAN".split())
-# Sponsor/organiser words that can sit BEFORE an edition ordinal ("IEEE 23rd ...",
+# Sponsor/organizer words that can sit BEFORE an edition ordinal ("IEEE 23rd ...",
 # "ACM/IEEE 27th ..."); used to drop that ordinal from the reusable series name.
 SPONSOR = "IEEE|ACM|IFIP|IET|Annual"
 
@@ -271,7 +271,7 @@ def strip_framing(title, acronym):
     return re.sub(r"\Athe\s+", "", t, flags=re.I)
 
 
-# Split the region into comma segments. First normalise " - " dashes: a dash is an
+# Split the region into comma segments. First normalize " - " dashes: a dash is an
 #     inversion boundary only when an ordinal follows ("Topic - 7th Int Conf"); otherwise
 #     it joins a subtitle and stays put. Also drop a leading co-brand before such a dash.
 def split_into_segments(region):

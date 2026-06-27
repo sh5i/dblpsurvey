@@ -68,7 +68,7 @@ def strip_tags(s):
     return TAG_RE.sub('', s) if '<' in s else s   # most fields carry no inner markup
 
 
-# Match the title-normalisation used by the SQLite `title_norm` column:
+# Match the title-normalization used by the SQLite `title_norm` column:
 # keep ASCII alphanumerics only, lowercased.
 NON_ALNUM_RE = re.compile(r'[^A-Za-z0-9]')
 def norm_title(s):
@@ -76,7 +76,7 @@ def norm_title(s):
 
 
 def sql_quote(s):
-    # An absent field is None here; coerce to '' so it serialises as an empty SQL string,
+    # An absent field is None here; coerce to '' so it serializes as an empty SQL string,
     # not the literal "None" that str(None) would produce.
     s = '' if s is None else str(s)
     return "'" + s.replace("'", "''") + "'"
