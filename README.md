@@ -38,7 +38,7 @@ $ git clone --recurse-submodules https://github.com/sh5i/dblpsurvey.git
 $ cd dblpsurvey
 $ cp config/sample-se.yaml config/default.yaml    # pick a starting profile, then edit it
 $ make                                            # download + build data/default.{txt.gz,db}
-$ sudo make install            # optional: ln -s $(realpath ./bin/dblpsurvey) /usr/local/bin/
+$ export PATH="$PWD/bin:$PATH"                    # optional: put the tools on your PATH (add to your shell rc)
 ```
 
 `make` downloads the DBLP XML from <https://dblp.org/>, filters it by `config/default.yaml`, and writes the text and SQLite databases under `data/`.

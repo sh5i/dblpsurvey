@@ -1,4 +1,4 @@
-.PHONY: all install update clean distclean test
+.PHONY: all update clean distclean test
 .DELETE_ON_ERROR:
 
 # Recipes are pipelines (gunzip | extractor | sqlite3); without pipefail a crashing
@@ -30,9 +30,6 @@ all: data/$(PROFILE).txt.gz data/$(PROFILE).db
 
 build data:
 	mkdir -p $@
-
-install:
-	ln -s $(realpath ./bin/dblpsurvey) /usr/local/bin/
 
 data/dblp.dtd: | data
 	curl --fail -L https://dblp.org/xml/dblp.dtd -o $@
