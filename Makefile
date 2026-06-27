@@ -7,9 +7,10 @@
 SHELL := bash
 .SHELLFLAGS := -o pipefail -c
 
-# Extractor: go (fast, default) or python (readable reference, easy to hack on).
+# Extractor: go (fast) or python (readable reference, easy to hack on).  Defaults to go when a Go
+# compiler is on PATH, else falls back to python; force either with EXTRACTOR=go / EXTRACTOR=python.
 # Both share the same I/O: stdin XML -> stdout text, flags --color/--config/--dtd.
-EXTRACTOR ?= go
+EXTRACTOR ?= $(if $(shell command -v go),go,python)
 ifeq ($(EXTRACTOR),go)
 EXTRACT     = ./build/dblp2text
 EXTRACT_DEP = build/dblp2text
