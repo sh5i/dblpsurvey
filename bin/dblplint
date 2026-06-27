@@ -803,8 +803,8 @@ def report(findings, selectors, counts, color, verbose, show_suppressed):
 def main():
     ap = argparse.ArgumentParser(description="Check/fix a .bib file against dblp.db")
     ap.add_argument("bib")
-    ap.add_argument("-p", "--profile", default="default", metavar="NAME",
-                    help="use the DB built from config/NAME.yaml -- i.e. data/NAME.db (default: 'default')")
+    ap.add_argument("-p", "--profile", default=os.environ.get("DBLPSURVEY_PROFILE", "default"), metavar="NAME",
+                    help="use the DB built from config/NAME.yaml -- i.e. data/NAME.db (default: $DBLPSURVEY_PROFILE or 'default')")
     ap.add_argument("--db", default=None,
                     help="explicit path to a dblp.db (overrides --profile)")
     MODES = ("interactive", "stdin", "all")

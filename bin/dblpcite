@@ -38,8 +38,8 @@ def _key(line):
 
 def main():
     ap = argparse.ArgumentParser(description="Turn DBLP keys (stdin) into BibTeX entries")
-    ap.add_argument("--profile", default="default", metavar="NAME",
-                    help="DB built from config/NAME.yaml -- data/NAME.db (default: 'default')")
+    ap.add_argument("--profile", default=os.environ.get("DBLPSURVEY_PROFILE", "default"), metavar="NAME",
+                    help="DB built from config/NAME.yaml -- data/NAME.db (default: $DBLPSURVEY_PROFILE or 'default')")
     ap.add_argument("--db", default=None, help="explicit path to a dblp.db (overrides --profile)")
     ap.add_argument("--short", action="store_true",
                     help="use the short venue form (a journal's abbreviation / 'Proc. {ACRONYM}')")

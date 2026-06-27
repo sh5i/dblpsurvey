@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PROFILE=default
+PROFILE=${DBLPSURVEY_PROFILE:-default}   # -p overrides; $DBLPSURVEY_PROFILE sets the default profile
 BIBTEX=0
 INSERT=""
 KEY_FILTER=(cat)
