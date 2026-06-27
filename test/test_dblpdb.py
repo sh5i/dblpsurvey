@@ -127,6 +127,12 @@ class DbLookups(unittest.TestCase):
         keys = [r["key"] for r in self.db.fuzzy("Example Sample Topics")]
         self.assertIn("journals/jes/Art21", keys)
 
+    def test_fuzzy_allcaps_word_is_literal_not_fts_operator(self):
+        # an all-caps title word ('AND'/'NOT') must be quoted as a literal FTS phrase, not left
+        # as a bare boolean operator -- a bare one is an fts5 syntax error the fallback swallows
+        keys = [r["key"] for r in self.db.fuzzy("Example AND Sample Topics")]
+        self.assertIn("journals/jes/Art21", keys)
+
 
 class EntrySerialization(unittest.TestCase):
     def setUp(self):

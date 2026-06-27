@@ -275,7 +275,9 @@ class Db:
         toks = [t for t in re.findall(r"[A-Za-z0-9]+", title) if len(t) > 2][:8]
         if not toks:
             return []
-        q = "title:(" + " OR ".join(toks) + ")"
+        # quote each token as an FTS phrase so an all-caps word ("AND"/"NOT") is a literal, not a
+        # boolean operator (a bare one is a syntax error -> the fallback silently finds nothing)
+        q = "title:(" + " OR ".join('"%s"' % t for t in toks) + ")"
         try:
             return self.con.execute(
                 "SELECT e.year, e.venue, e.title, e.key FROM fts JOIN entries e "
